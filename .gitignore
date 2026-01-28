@@ -1,1 +1,27 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Production build
+build/
+
+# Logs and caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+
+# IDE/editor files
+.vscode/
+.idea/
+*.iml
+
+# Firebase local/cache files
+.firebase/
+
+# Environment variables (add .env if using Firebase config vars)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
