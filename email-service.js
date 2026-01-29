@@ -1,13 +1,16 @@
 // Email Service for OTP
 import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
 
-// Create a transporter using Gmail (for testing)
-// In production, you should use environment variables for credentials
+// Load environment variables
+dotenv.config();
+
+// Create a transporter using Gmail with environment variables
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'kranthinalla0@gmail.com',
-    pass: 'awyr axos infk rgpn'
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
   }
 });
 
@@ -15,7 +18,7 @@ const transporter = nodemailer.createTransport({
 const sendOTPEmail = async (email, otp) => {
   try {
     const mailOptions = {
-      from: 'iMOB-MOTION <kranthinalla0@gmail.com>',
+      from: `iMOB-MOTION <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Your OTP Code for iMOB-MOTION',
       html: `

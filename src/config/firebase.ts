@@ -1,11 +1,11 @@
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyC7h3XqF9Tm2K8vL4pN5oR6sW7yX8zQ9aB",
-  authDomain: "imob-motion-4b2f1.firebaseapp.com",
-  projectId: "imob-motion-4b2f1",
-  storageBucket: "imob-motion-4b2f1.appspot.com",
-  messagingSenderId: "123456789012",
-  appId: "1:123456789012:web:abc123def456ghi789"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 export default firebaseConfig;
