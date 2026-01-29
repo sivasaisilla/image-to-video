@@ -57,7 +57,7 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
   });
 
   // API base URL
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
 
   // Fetch user profile
   useEffect(() => {

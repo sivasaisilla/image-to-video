@@ -38,7 +38,7 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
   const [previousLogos, setPreviousLogos] = useState<PreviousLogo[]>([
     {
       id: 'logo-1',

@@ -298,7 +298,7 @@ function Frame1({
   onLogout?: () => void;
 }) {
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
 
   useEffect(() => {
     const fetchProfile = async () => {

@@ -24,7 +24,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,7 +115,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/signup`, {
+      const response = await fetch(`${API_BASE}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, name: userName, phone: phoneNumber })

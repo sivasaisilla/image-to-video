@@ -16,7 +16,7 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,21 +24,22 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/login`, {
+      const response = await fetch(`${API_BASE}/auth/signin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (response.ok) {
+        const data = await response.json();
+        
         // Store token and user info
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         onLoginSuccess();
       } else {
-        setError(data.error || "Login failed. Please check your credentials.");
+        const errorData = await response.json();
+        setError(errorData.error || 'Login failed. Please check your credentials.');
       }
     } catch (err) {
       setError("Network error. Please try again.");

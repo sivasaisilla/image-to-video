@@ -49,7 +49,7 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
   const [error, setError] = useState('');
   const [stats, setStats] = useState(null);
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
 
   // Fetch user projects
   const fetchProjects = async () => {

@@ -41,7 +41,7 @@ export function SettingsPage({ onBack, onNavigateToCreate, onNavigateToProjects,
   const [language, setLanguage] = useState('en');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
-  const API_BASE = 'http://localhost:5000/api';
+  const API_BASE = 'http://localhost:3003/api';
 
   // Fetch user profile
   useEffect(() => {
