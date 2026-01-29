@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Mail, ArrowLeft, Loader2, CheckCircle, AlertCircle, Lock, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, ArrowLeft, Chrome, Apple, Loader2, AlertCircle, CheckCircle, User, Eye, EyeOff, Phone } from "lucide-react";
 import { useState } from "react";
 
 interface SignupPageProps {
@@ -13,6 +13,8 @@ type SignupStep = 'email' | 'otp' | 'password' | 'success';
 export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupPageProps) {
   const [currentStep, setCurrentStep] = useState<SignupStep>('email');
   const [email, setEmail] = useState("");
+  const [userName, setUserName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -116,7 +118,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
       const response = await fetch(`${API_BASE}/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password, name: userName, phone: phoneNumber })
       });
 
       const data = await response.json();
@@ -153,6 +155,21 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
 
         <form onSubmit={handleEmailSubmit} className="space-y-6">
           <div>
+            <label className="block text-sm text-white/70 mb-2">Your Name</label>
+            <div className="relative">
+              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+              <input
+                type="text"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="Enter your full name"
+                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
             <label className="block text-sm text-white/70 mb-2">Email Address</label>
             <div className="relative">
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
@@ -161,6 +178,21 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
+                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm text-white/70 mb-2">Phone Number</label>
+            <div className="relative">
+              <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+1 (555) 123-4567"
                 className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all"
                 required
               />
@@ -183,7 +215,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
 
           <button
             type="submit"
-            disabled={isLoading || !email}
+            disabled={isLoading || !email || !userName || !phoneNumber}
             className="w-full py-4 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-md hover:shadow-2xl hover:shadow-amber-400/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isLoading ? (

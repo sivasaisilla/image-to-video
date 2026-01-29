@@ -32,8 +32,13 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [uploadedPhotos, setUploadedPhotos] = useState<UploadedPhoto[]>([]);
+  const [hasUploadedFiles, setHasUploadedFiles] = useState(false);
   const [selectedLogo, setSelectedLogo] = useState<string | null>(null);
   const [uploadedLogo, setUploadedLogo] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  
+  const API_BASE = 'http://localhost:5000/api';
   const [previousLogos, setPreviousLogos] = useState<PreviousLogo[]>([
     {
       id: 'logo-1',
@@ -100,14 +105,57 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
     handleFiles(files);
   };
 
-  const handleFiles = (files: File[]) => {
-    const newPhotos: UploadedPhoto[] = files.map((file, index) => ({
-      id: `photo-${Date.now()}-${index}`,
-      name: file.name,
-      size: formatFileSize(file.size),
-      url: URL.createObjectURL(file),
-    }));
-    setUploadedPhotos([...uploadedPhotos, ...newPhotos]);
+  const handleFiles = async (files: File[]) => {
+    setIsUploading(true);
+    setUploadSuccess(false);
+    
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Please login to upload files');
+        setIsUploading(false);
+        return;
+      }
+
+      // Upload each file to the backend
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', file.name);
+        formData.append('description', `Uploaded from dashboard - ${new Date().toLocaleDateString()}`);
+
+        const response = await fetch(`${API_BASE}/content/upload`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
+      }
+
+      // Show success message
+      setUploadSuccess(true);
+      setHasUploadedFiles(true); // Mark that files have been uploaded
+      setTimeout(() => setUploadSuccess(false), 3000);
+      
+      // Clear local uploaded photos since they're now on the server
+      setUploadedPhotos([]);
+      
+      // Don't redirect to projects - let user continue workflow
+      // setTimeout(() => {
+      //   onNavigateToProjects?.();
+      // }, 1500);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload files. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -301,983 +349,698 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
         </div>
       )}
 
-      {/* Creation Modal */}
-      {isCreating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
-          
-          {/* Modal Content */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative z-10 w-full max-w-md"
-          >
-            {creationStep === 'processing' && (
-              <div className="backdrop-blur-md bg-white/5 border border-white/20 rounded-md p-8 text-center">
-                {/* Spinner */}
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                  className="w-16 h-16 mx-auto mb-6 border-4 border-white/20 border-t-white rounded-full"
-                />
-                
-                {/* Text */}
-                <h3 className="text-xl mb-2">Creating Your Video</h3>
-                <p className="text-white/60 text-sm mb-6">
-                  Video generation has started. Please wait...
-                </p>
-                
-                {/* Progress Bar */}
-                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+      {/* Header */}
+      <header className="sticky top-0 px-8 py-4 z-50">
+        <DashboardHeader
+          onNavigateToProjects={onNavigateToProjects}
+          onNavigateToProfile={onNavigateToProfile}
+          onNavigateToSettings={onNavigateToSettings}
+          onNavigateToPlans={onNavigateToPlans}
+          onNavigateToReferral={onNavigateToReferral}
+          onLogout={handleLogoutClick}
+          activePage="create"
+        />
+      </header>
+
+      {/* Workflow Steps */}
+      <div className="px-8 py-8">
+        <div className="max-w-3xl mx-auto">
+          {/* Steps Container */}
+          <div className="flex items-center justify-center gap-2">
+            {steps.map((step, index) => {
+              const Icon = step.icon;
+              const isActive = index === currentStep;
+              const isCompleted = index < currentStep;
+
+              return (
+                <div key={index} className="flex items-center">
+                  {/* Step Item */}
                   <motion.div
-                    initial={{ width: "0%" }}
-                    animate={{ width: "100%" }}
-                    transition={{ duration: 3, ease: "linear" }}
-                    className="h-full bg-gradient-to-r from-white/60 to-white rounded-full"
-                  />
-                </div>
-              </div>
-            )}
-
-            {creationStep === 'completed' && (
-              <div className="backdrop-blur-md bg-white/5 border border-white/20 rounded-md p-8 text-center">
-                {/* Success Icon */}
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", duration: 0.6 }}
-                  className="w-20 h-20 mx-auto mb-6 bg-green-500/20 rounded-full flex items-center justify-center"
-                >
-                  <CheckCircle2 className="w-12 h-12 text-green-400" />
-                </motion.div>
-                
-                {/* Text */}
-                <h3 className="text-xl mb-2">Project Created Successfully!</h3>
-                <p className="text-white/60 text-sm mb-6">
-                  Your video has been generated and is ready to view
-                </p>
-                
-                {/* Button */}
-                <button
-                  onClick={() => {
-                    setIsCreating(false);
-                    setCreationStep(null);
-                    if (onNavigateToProjects) {
-                      onNavigateToProjects();
-                    }
-                  }}
-                  className="w-full py-3 bg-white border border-white/40 hover:bg-white/90 transition-all text-[#1a1410] rounded-md"
-                >
-                  Go to Projects
-                </button>
-              </div>
-            )}
-          </motion.div>
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="relative z-10">
-        {/* Dashboard Header */}
-        <header className="sticky top-0 px-8 py-4">
-          <DashboardHeader
-            onNavigateToProjects={onNavigateToProjects}
-            onNavigateToProfile={onNavigateToProfile}
-            onNavigateToSettings={onNavigateToSettings}
-            onNavigateToPlans={onNavigateToPlans}
-            onNavigateToReferral={onNavigateToReferral}
-            onLogout={handleLogoutClick}
-            activePage="create"
-          />
-        </header>
-
-        {/* Workflow Steps */}
-        <div className="px-8 py-8">
-          <div className="max-w-3xl mx-auto">
-            {/* Steps Container */}
-            <div className="flex items-center justify-center gap-2">
-              {steps.map((step, index) => {
-                const Icon = step.icon;
-                const isActive = index === currentStep;
-                const isCompleted = index < currentStep;
-
-                return (
-                  <div key={index} className="flex items-center">
-                    {/* Step Item */}
-                    <motion.div
-                      initial={{ scale: 0, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ delay: index * 0.1, duration: 0.3 }}
-                      className="flex flex-col items-center gap-3"
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: index * 0.1, duration: 0.3 }}
+                    className="flex flex-col items-center gap-3"
+                  >
+                    {/* Icon Circle */}
+                    <div
+                      className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                        isActive
+                          ? "bg-white text-black border-white shadow-lg shadow-white/30 scale-110"
+                          : isCompleted
+                          ? "bg-white/10 border-white/50 text-white"
+                          : "bg-white/5 border-white/20 text-white/40"
+                      }`}
                     >
-                      {/* Icon Circle */}
-                      <div
-                        className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
-                          isActive
-                            ? "bg-white text-black border-white shadow-lg shadow-white/30 scale-110"
-                            : isCompleted
-                            ? "bg-white/10 border-white/50 text-white"
-                            : "bg-white/5 border-white/20 text-white/40"
+                      <Icon className={`${isActive ? 'w-6 h-6' : 'w-5 h-5'} transition-all duration-300`} />
+                    </div>
+                    
+                    {/* Step Label */}
+                    <div className="flex flex-col items-center gap-1">
+                      <span
+                        className={`text-xs text-center whitespace-nowrap transition-all duration-300 ${
+                          isActive ? "text-white" : "text-white/60"
                         }`}
                       >
-                        <Icon className={`${isActive ? 'w-6 h-6' : 'w-5 h-5'} transition-all duration-300`} />
-                      </div>
-                      
-                      {/* Step Label */}
-                      <div className="flex flex-col items-center gap-1">
-                        <span
-                          className={`text-xs text-center whitespace-nowrap transition-all duration-300 ${
-                            isActive ? "text-white" : "text-white/60"
-                          }`}
-                        >
-                          {step.name}
-                        </span>
-                        <span className={`text-xs transition-all duration-300 ${
-                          isActive ? "text-white/70" : "text-white/40"
-                        }`}>
-                          Step {index + 1}
-                        </span>
-                      </div>
-                    </motion.div>
+                        {step.name}
+                      </span>
+                      <span className={`text-xs transition-all duration-300 ${
+                        isActive ? "text-white/70" : "text-white/40"
+                      }`}>
+                        Step {index + 1}
+                      </span>
+                    </div>
+                  </motion.div>
 
-                    {/* Connector Line */}
-                    {index < steps.length - 1 && (
-                      <div className="w-24 px-3 -mt-12">
-                        <div className="h-[2px] bg-white/10 rounded-full overflow-hidden">
-                          <motion.div
-                            initial={{ width: "0%" }}
-                            animate={{ width: index < currentStep ? "100%" : "0%" }}
-                            transition={{ duration: 0.5, ease: "easeInOut" }}
-                            className="h-full bg-gradient-to-r from-white/60 to-white/80 rounded-full"
-                          />
-                        </div>
+                  {/* Connector Line */}
+                  {index < steps.length - 1 && (
+                    <div className="w-24 px-3 -mt-12">
+                      <div className="h-[2px] bg-white/10 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: "0%" }}
+                          animate={{ width: index < currentStep ? "100%" : "0%" }}
+                          transition={{ duration: 0.5, ease: "easeInOut" }}
+                          className="h-full bg-gradient-to-r from-white/60 to-white/80 rounded-full"
+                        />
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
+      </div>
 
-        {/* Main Content */}
-        <div className="px-6 pb-8 lg:px-8">
-          <div className="max-w-5xl mx-auto">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-8"
-            >
-              {/* Step 0: Upload Photos */}
-              {currentStep === 0 && (
-                <>
-                  {/* Header */}
-                  <div className="mb-8">
-                    <h2 className="text-2xl mb-2">Upload Photos</h2>
-                    <p className="text-white/60 text-sm">
-                      Import from a listing URL or upload manually
-                    </p>
-                  </div>
-
-                  {/* Import Method Toggle - iOS Style */}
-                  <div className="inline-flex p-1 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg mb-6">
-                    <button
-                      onClick={() => setImportMethod('manual')}
-                      className={`px-6 py-2.5 rounded-lg transition-all text-sm flex items-center gap-2 ${
-                        importMethod === 'manual'
-                          ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-black shadow-lg'
-                          : 'text-white/60 hover:text-white'
-                      }`}
-                    >
-                      <Upload className="w-4 h-4" />
-                      <span>Manual Upload</span>
-                    </button>
-                    <button
-                      onClick={() => setImportMethod('url')}
-                      className={`px-6 py-2.5 rounded-lg transition-all text-sm flex items-center gap-2 ${
-                        importMethod === 'url'
-                          ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-black shadow-lg'
-                          : 'text-white/60 hover:text-white'
-                      }`}
-                    >
-                      <Link2 className="w-4 h-4" />
-                      <span>Import from URL</span>
-                    </button>
-                  </div>
-
-                  {/* URL Import Section */}
-                  {importMethod === 'url' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="mb-6"
-                    >
-                      {/* Hero Card */}
-                      <div className="relative p-6 backdrop-blur-md bg-white/5 border border-white/10 rounded-xl mb-4 overflow-hidden">
-                        {/* Subtle Gradient Orb */}
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-amber-400/5 to-orange-400/0 blur-3xl rounded-full"></div>
-                        
-                        <div className="relative">
-                          <div className="flex items-start gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0">
-                              <Link2 className="w-5 h-5 text-white/80" />
-                            </div>
-                            <div className="flex-1">
-                              <h3 className="text-sm mb-1">Paste Listing URL</h3>
-                              <p className="text-xs text-white/60 mb-3">We&apos;ll automatically fetch all photos from the property listing</p>
-                              
-                              {/* Supported Platforms */}
-                              <div className="flex flex-wrap gap-1.5">
-                                {['Zillow', 'Realtor.com', 'Redfin', 'Trulia', 'Apartments.com'].map((site) => (
-                                  <span key={site} className="px-2 py-1 bg-white/10 border border-white/10 rounded text-xs text-white/70">
-                                    {site}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* URL Input */}
-                          <div className="flex gap-2">
-                            <div className="flex-1 relative">
-                              <input
-                                type="url"
-                                value={listingUrl}
-                                onChange={(e) => setListingUrl(e.target.value)}
-                                placeholder="https://www.zillow.com/homedetails/..."
-                                className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all text-white placeholder:text-white/30 text-sm"
-                              />
-                              <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                            </div>
-                            <button
-                              onClick={handleFetchFromUrl}
-                              disabled={!listingUrl || isFetchingUrl}
-                              className="px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg hover:scale-105 transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
-                            >
-                              {isFetchingUrl ? (
-                                <>
-                                  <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
-                                  <span>Fetching...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Download className="w-4 h-4" />
-                                  <span>Fetch</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {/* Manual Upload Section */}
-
-
-                  {/* Upload Area & Photos Showcase */}
-                  {(importMethod === 'manual' || uploadedPhotos.length > 0) && (
-                    <>
-                      {uploadedPhotos.length === 0 ? (
-                    // Empty State - Large Upload Area
-                    <div className="mb-6">
-                      <label
-                        className={`block border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${
-                          dragActive
-                            ? "border-amber-400/40 bg-white/10"
-                            : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
-                        }`}
-                        onDragEnter={handleDrag}
-                        onDragLeave={handleDrag}
-                        onDragOver={handleDrag}
-                        onDrop={handleDrop}
-                      >
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          onChange={handleFileInput}
-                          className="hidden"
-                        />
-                        <Upload className="w-12 h-12 mx-auto mb-4 text-white/40" />
-                        <h3 className="text-sm mb-2">Drop your photos here</h3>
-                        <p className="text-white/60 text-xs mb-5">
-                          or click to browse • JPG, PNG, WebP
-                        </p>
-                        <div className="inline-block px-5 py-2.5 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg transition-all text-sm">
-                          Browse Files
-                        </div>
-                      </label>
-
-                      {/* Cloud Storage */}
-                      <div className="mt-4">
-                        <div className="relative mb-3">
-                          <div className="absolute inset-0 flex items-center">
-                            <div className="w-full border-t border-white/10"></div>
-                          </div>
-                          <div className="relative flex justify-center text-xs">
-                            <span className="px-3 bg-[#131519] text-white/40">
-                              Or import from
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button className="flex-1 flex items-center justify-center gap-2 py-2.5 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all text-xs">
-                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M19 11h-3V4a1 1 0 0 0-2 0v7h-2V6a1 1 0 0 0-2 0v5H8V8a1 1 0 0 0-2 0v3H3a1 1 0 0 0-1 1c0 4.97 4.03 9 9 9h2c4.97 0 9-4.03 9-9a1 1 0 0 0-1-1z"/>
-                            </svg>
-                            <span>Dropbox</span>
-                          </button>
-                          <button className="flex-1 flex items-center justify-center gap-2 py-2.5 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all text-xs">
-                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M7.71 3.5L1.15 11l6.56 7.5L14.27 11z"/>
-                              <path d="M14.27 11l6.56 7.5L14.27 26l-6.56-7.5z" opacity="0.5"/>
-                              <path d="M7.71 18.5l6.56 7.5 6.56-7.5-6.56-7.5z" opacity="0.75"/>
-                            </svg>
-                            <span>Drive</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    // Photos Uploaded - Grid Showcase
-                    <div className="mb-6">
-                      {/* Header with instructions */}
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm text-white/80">Upload photos in the order they should appear in your video</h3>
-                        <button
-                          onClick={() => setUploadedPhotos([])}
-                          className="text-xs text-white/60 hover:text-white transition-all"
-                        >
-                          Clear all
-                        </button>
-                      </div>
-
-                      {/* Photo Grid - 5 columns with scroll */}
-                      <div className="grid grid-cols-5 gap-2 mb-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        {uploadedPhotos.map((photo, index) => (
-                          <motion.div
-                            key={photo.id}
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.effectAllowed = 'move';
-                              e.dataTransfer.setData('text/html', index.toString());
-                            }}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = 'move';
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const dragIndex = parseInt(e.dataTransfer.getData('text/html'));
-                              const dropIndex = index;
-                              
-                              if (dragIndex !== dropIndex) {
-                                const newPhotos = [...uploadedPhotos];
-                                const [removed] = newPhotos.splice(dragIndex, 1);
-                                newPhotos.splice(dropIndex, 0, removed);
-                                setUploadedPhotos(newPhotos);
-                              }
-                            }}
-                            className="relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-amber-400/30 transition-all group bg-white/5 cursor-move"
-                          >
-                            {/* Order number badge */}
-                            <div className="absolute top-1.5 left-1.5 w-5 h-5 bg-amber-500/90 backdrop-blur-md rounded-md flex items-center justify-center z-10 border border-white/20">
-                              <span className="text-[10px] font-semibold text-white">{index + 1}</span>
-                            </div>
-                            
-                            {/* Drag handle indicator */}
-                            <div className="absolute top-1.5 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all">
-                              <GripVertical className="w-4 h-4 text-white/80" />
-                            </div>
-                            
-                            <img
-                              src={photo.url}
-                              alt={photo.name}
-                              className="w-full h-full object-cover"
-                            />
-                            {/* Overlay on hover */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all" />
-                            {/* Delete button */}
-                            <button
-                              onClick={() => removePhoto(photo.id)}
-                              className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500/80 hover:bg-red-500 backdrop-blur-md rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-white/20"
-                            >
-                              <X className="w-3.5 h-3.5 text-white" />
-                            </button>
-                            {/* File info on hover */}
-                            <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-all">
-                              <p className="text-[10px] text-white truncate">{photo.name}</p>
-                              <p className="text-[9px] text-white/60">{photo.size}</p>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-
-                      {/* Add More Button */}
-                      <label className="block">
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          onChange={handleFileInput}
-                          className="hidden"
-                        />
-                        <div className="w-full py-3 border-2 border-dashed border-white/10 hover:border-amber-400/30 rounded-lg text-center transition-all cursor-pointer hover:bg-white/5">
-                          <span className="text-sm text-white/60">+ Add more photos</span>
-                        </div>
-                      </label>
-                    </div>
-                      )}
-                    </>
-                  )}
-
-                  {/* Tips - Compact */}
-                  <div className="flex flex-wrap gap-4 text-xs text-white/50">
-                    <span>• Max 16MB per file</span>
-                    <span>• 8000x8000px</span>
-                    <span>• JPG, PNG, WebP</span>
-                  </div>
-                </>
-              )}
-
-              {/* Step 1: Add Branding */}
-              {currentStep === 1 && (
-                <>
-                  <div className="mb-8 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-2xl mb-2">Add Branding</h2>
-                      <p className="text-white/60 text-sm">
-                        Upload your logo
-                      </p>
-                    </div>
-                    {/* Toggle Switch */}
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-white/70">Add logo to video</span>
-                      <button
-                        onClick={() => setShowLogoOnVideo(!showLogoOnVideo)}
-                        className={`relative w-12 h-6 rounded-full transition-all ${
-                          showLogoOnVideo ? 'bg-gradient-to-r from-amber-400 to-orange-400' : 'bg-white/10'
-                        }`}
-                      >
-                        <div
-                          className={`absolute top-0.5 w-5 h-5 rounded-full transition-all ${
-                            showLogoOnVideo ? 'bg-white right-0.5 shadow-lg' : 'bg-white/60 left-0.5'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Conditional Content - Only show when toggle is ON */}
-                  {showLogoOnVideo && (
-                    <>
-                      {/* Upload New Logo Button */}
-                      <div className="mb-6">
-                        <label className="block cursor-pointer">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleLogoUpload}
-                            className="hidden"
-                          />
-                          <div className="w-full py-3 backdrop-blur-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-amber-400/30 transition-all text-white rounded-lg text-center flex items-center justify-center gap-2">
-                            <Upload className="w-4 h-4" />
-                            <span className="text-sm">Upload Your Logo</span>
-                          </div>
-                        </label>
-                      </div>
-
-                      {/* Previously Uploaded Logos */}
-                      {previousLogos.length > 0 && (
-                        <div className="mb-6">
-                          <h3 className="text-xs mb-2 text-white/70">Previously Uploaded</h3>
-                          <div className="grid grid-cols-4 gap-2">
-                            {previousLogos.map((logo) => (
-                              <motion.button
-                                key={logo.id}
-                                onClick={() => {
-                                  setUploadedLogo(logo.url);
-                                  setSelectedLogo(null);
-                                }}
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                className={`relative p-2 rounded-lg border transition-all ${
-                                  uploadedLogo === logo.url
-                                    ? 'border-amber-400/30 bg-white/10 shadow-lg'
-                                    : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                                }`}
-                              >
-                                <div className="w-full aspect-square rounded bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden">
-                                  <img src={logo.url} alt="Previous logo" className="w-full h-full object-contain" />
-                                </div>
-                                
-                                {/* Check Mark */}
-                                {uploadedLogo === logo.url && (
-                                  <motion.div
-                                    initial={{ scale: 0 }}
-                                    animate={{ scale: 1 }}
-                                    className="absolute top-1 right-1 w-4 h-4 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full flex items-center justify-center shadow-lg"
-                                  >
-                                    <CheckCircle2 className="w-3 h-3 text-black" />
-                                  </motion.div>
-                                )}
-                              </motion.button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {/* Skip Message */}
-                  <p className="text-xs text-white/50 text-center">
-                    You can skip this step if you don&apos;t need branding
+      {/* Main Content */}
+      <div className="px-6 pb-8 lg:px-8">
+        <div className="max-w-5xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-8"
+          >
+            {/* Step 0: Upload Photos */}
+            {currentStep === 0 && (
+              <>
+                {/* Header */}
+                <div className="mb-8">
+                  <h2 className="text-2xl mb-2">Upload Photos</h2>
+                  <p className="text-white/60 text-sm">
+                    Import from a listing URL or upload manually
                   </p>
-                </>
-              )}
+                </div>
 
-              {/* Step 2: Add Music */}
-              {currentStep === 2 && (
-                <>
-                  <div className="mb-8 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-2xl mb-2">Background Music</h2>
-                      <p className="text-white/60 text-sm">
-                        Choose one background music for your video
-                      </p>
-                    </div>
-                  </div>
+                {/* Import Method Toggle - iOS Style */}
+                <div className="inline-flex p-1 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg mb-6">
+                  <button
+                    onClick={() => setImportMethod('manual')}
+                    className={`px-6 py-2.5 rounded-lg transition-all text-sm flex items-center gap-2 ${
+                      importMethod === 'manual'
+                        ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-black shadow-lg'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Manual Upload</span>
+                  </button>
+                  <button
+                    onClick={() => setImportMethod('url')}
+                    className={`px-6 py-2.5 rounded-lg transition-all text-sm flex items-center gap-2 ${
+                      importMethod === 'url'
+                        ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-black shadow-lg'
+                        : 'text-white/60 hover:text-white'
+                    }`}
+                  >
+                    <Link2 className="w-4 h-4" />
+                    <span>Import from URL</span>
+                  </button>
+                </div>
 
-                  {/* Music Filters */}
-                  <div className="mb-6 flex gap-2 overflow-x-auto pb-2">
-                    {musicFilters.map((filter) => (
-                      <button
-                        key={filter}
-                        onClick={() => setMusicFilter(filter)}
-                        className={`px-4 py-2.5 rounded-lg whitespace-nowrap transition-all text-sm ${
-                          musicFilter === filter
-                            ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-black shadow-lg'
-                            : 'backdrop-blur-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20'
-                        }`}
-                      >
-                        {filter}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Music Grid - 3 columns */}
-                  <div className="grid grid-cols-6 gap-2 mb-6 max-h-[500px] overflow-y-auto pr-2">
-                    {filteredMusic.map((song) => (
-                      <motion.div
-                        key={song.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className={`relative p-3 rounded-lg border transition-all cursor-pointer ${
-                          selectedMusic === song.id
-                            ? 'border-amber-400/30 bg-white/10 shadow-lg'
-                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                        }`}
-                        onClick={() => {
-                          if (selectedMusic === song.id) {
-                            setSelectedMusic(null);
-                          } else {
-                            setSelectedMusic(song.id);
-                          }
-                        }}
-                      >
-                        {/* Album Cover */}
-                        <div className="w-full aspect-square rounded-lg bg-white/10 flex items-center justify-center mb-2 border border-white/10">
-                          <Music className="w-6 h-6 text-white/60" />
+                {/* URL Import Section */}
+                {importMethod === 'url' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-6"
+                  >
+                    {/* Hero Card */}
+                    <div className="relative p-6 backdrop-blur-md bg-white/5 border border-white/10 rounded-xl mb-4 overflow-hidden">
+                      {/* Subtle Gradient Orb */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-amber-400/5 to-orange-400/0 blur-3xl rounded-full"></div>
+                      
+                      <div className="relative">
+                        <div className="flex items-start gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0">
+                            <Link2 className="w-5 h-5 text-white/80" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-sm mb-1">Paste Listing URL</h3>
+                            <p className="text-xs text-white/60 mb-3">We&apos;ll automatically fetch all photos from the property listing</p>
+                            
+                            {/* Supported Platforms */}
+                            <div className="flex flex-wrap gap-1.5">
+                              {['Zillow', 'Realtor.com', 'Redfin', 'Trulia', 'Apartments.com'].map((site) => (
+                                <span key={site} className="px-2 py-1 bg-white/10 border border-white/10 rounded text-xs text-white/70">
+                                  {site}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Song Info */}
-                        <div className="mb-2">
-                          <p className="text-xs text-white mb-0.5 truncate">{song.name}</p>
-                          <p className="text-[10px] text-white/40 truncate">{song.category}</p>
-                        </div>
-
-                        {/* Bottom Row: Duration + Play Button */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-white/40">2:30</span>
-                          
-                          {/* Play/Pause Button */}
+                        {/* URL Input */}
+                        <div className="flex gap-2">
+                          <div className="flex-1 relative">
+                            <input
+                              type="url"
+                              value={listingUrl}
+                              onChange={(e) => setListingUrl(e.target.value)}
+                              placeholder="https://www.zillow.com/homedetails/..."
+                              className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all text-white placeholder:text-white/30 text-sm"
+                            />
+                            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                          </div>
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (playingMusic === song.id) {
-                                setPlayingMusic(null);
-                              } else {
-                                setPlayingMusic(song.id);
-                              }
-                            }}
-                            className="w-6 h-6 rounded-md bg-white/10 border border-white/10 flex items-center justify-center hover:bg-white/20 hover:border-white/20 transition-all"
+                            onClick={handleFetchFromUrl}
+                            disabled={!listingUrl || isFetchingUrl}
+                            className="px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg hover:scale-105 transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
                           >
-                            {playingMusic === song.id ? (
-                              <svg className="w-2.5 h-2.5 text-white/80" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                              </svg>
+                            {isFetchingUrl ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
+                                <span>Fetching...</span>
+                              </>
                             ) : (
-                              <svg className="w-2.5 h-2.5 ml-0.5 text-white/80" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M8 5v14l11-7z"/>
-                              </svg>
+                              <>
+                                <Download className="w-4 h-4" />
+                                <span>Fetch</span>
+                              </>
                             )}
                           </button>
                         </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
 
-                        {/* Check Mark for selected */}
-                        {selectedMusic === song.id && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="absolute top-1.5 right-1.5 w-5 h-5 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full flex items-center justify-center shadow-lg"
+                {/* Manual Upload Section */}
+                {(importMethod === 'manual' || uploadedPhotos.length > 0) && (
+                  <>
+                    {uploadedPhotos.length === 0 ? (
+                      // Empty State - Large Upload Area
+                      <div className="mb-6">
+                        <label
+                          className={`block border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer ${
+                            dragActive
+                              ? "border-amber-400/40 bg-white/10"
+                              : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
+                          }`}
+                          onDragEnter={handleDrag}
+                          onDragLeave={handleDrag}
+                          onDragOver={handleDrag}
+                          onDrop={handleDrop}
+                        >
+                          <input
+                            type="file"
+                            multiple
+                            accept="image/*,video/*"
+                            onChange={handleFileInput}
+                            className="hidden"
+                            disabled={isUploading}
+                          />
+                          {isUploading ? (
+                            <>
+                              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+                              <h3 className="text-sm mb-2">Uploading...</h3>
+                              <p className="text-white/60 text-xs">Please wait while we upload your files</p>
+                            </>
+                          ) : uploadSuccess ? (
+                            <>
+                              <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+                                <CheckCircle2 className="w-8 h-8 text-green-500" />
+                              </div>
+                              <h3 className="text-sm mb-2 text-green-500">Upload Successful!</h3>
+                              <p className="text-white/60 text-xs">Click Next to continue to branding</p>
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-12 h-12 mx-auto mb-4 text-white/40" />
+                              <h3 className="text-sm mb-2">Drop your photos here</h3>
+                              <p className="text-white/60 text-xs mb-5">
+                                or click to browse • JPG, PNG, WebP, MP4
+                              </p>
+                              <div className="inline-block px-5 py-2.5 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg transition-all text-sm">
+                                Browse Files
+                              </div>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    ) : (
+                      // Photos Uploaded - Grid Showcase
+                      <div className="mb-6">
+                        {/* Header with instructions */}
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-sm text-white/80">Upload photos in the order they should appear in your video</h3>
+                          <button
+                            onClick={() => setUploadedPhotos([])}
+                            className="text-xs text-white/60 hover:text-white transition-all"
                           >
-                            <CheckCircle2 className="w-3 h-3 text-black" />
-                          </motion.div>
-                        )}
-                      </motion.div>
-                    ))}
-                  </div>
+                            Clear all
+                          </button>
+                        </div>
 
-                  {/* Skip Message */}
-                  <p className="text-xs text-white/50 text-center">
-                    💡 You can skip this step for a silent video
-                  </p>
-                </>
-              )}
+                        {/* Photo Grid - 5 columns with scroll */}
+                        <div className="grid grid-cols-5 gap-2 mb-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                          {uploadedPhotos.map((photo, index) => (
+                            <motion.div
+                              key={photo.id}
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/html', index.toString());
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const dragIndex = parseInt(e.dataTransfer.getData('text/html'));
+                                const dropIndex = index;
+                                
+                                if (dragIndex !== dropIndex) {
+                                  const newPhotos = [...uploadedPhotos];
+                                  const [removed] = newPhotos.splice(dragIndex, 1);
+                                  newPhotos.splice(dropIndex, 0, removed);
+                                  setUploadedPhotos(newPhotos);
+                                }
+                              }}
+                              className="relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-amber-400/30 transition-all group bg-white/5 cursor-move"
+                            >
+                              {/* Order number badge */}
+                              <div className="absolute top-1.5 left-1.5 w-5 h-5 bg-amber-500/90 backdrop-blur-md rounded-md flex items-center justify-center z-10 border border-white/20">
+                                <span className="text-[10px] font-semibold text-white">{index + 1}</span>
+                              </div>
+                              
+                              {/* Drag handle indicator */}
+                              <div className="absolute top-1.5 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all">
+                                <GripVertical className="w-4 h-4 text-white/80" />
+                              </div>
+                              
+                              <img
+                                src={photo.url}
+                                alt={photo.name}
+                                className="w-full h-full object-cover"
+                              />
+                              {/* Overlay on hover */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all" />
+                              {/* Delete button */}
+                              <button
+                                onClick={() => removePhoto(photo.id)}
+                                className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500/80 hover:bg-red-500 backdrop-blur-md rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-white/20"
+                              >
+                                <X className="w-3.5 h-3.5 text-white" />
+                              </button>
+                              {/* File info on hover */}
+                              <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                                <p className="text-[10px] text-white truncate">{photo.name}</p>
+                                <p className="text-[9px] text-white/60">{photo.size}</p>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
 
-              {/* Step 3: Add Address */}
-              {currentStep === 3 && (
-                <>
-                  <div className="mb-8">
-                    <h2 className="text-2xl mb-2">Add Address</h2>
+                        {/* Add More Button */}
+                        <label className="block">
+                          <input
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            onChange={handleFileInput}
+                            className="hidden"
+                          />
+                          <div className="w-full py-3 border-2 border-dashed border-white/10 hover:border-amber-400/30 rounded-lg text-center transition-all cursor-pointer hover:bg-white/5">
+                            <span className="text-sm text-white/60">+ Add more photos</span>
+                          </div>
+                        </label>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Tips - Compact */}
+                <div className="flex flex-wrap gap-4 text-xs text-white/50">
+                  <span>• Max 16MB per file</span>
+                  <span>• 8000x8000px</span>
+                  <span>• JPG, PNG, WebP, MP4</span>
+                </div>
+              </>
+            )}
+
+            {/* Step 1: Add Branding */}
+            {currentStep === 1 && (
+              <>
+                <div className="mb-8 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl mb-2">Add Branding</h2>
                     <p className="text-white/60 text-sm">
-                      Enter the property address to display on your video
+                      Upload your logo
                     </p>
                   </div>
+                  {/* Toggle Switch */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-white/70">Add logo to video</span>
+                    <button
+                      onClick={() => setShowLogoOnVideo(!showLogoOnVideo)}
+                      className={`relative w-12 h-6 rounded-full transition-all ${
+                        showLogoOnVideo ? 'bg-gradient-to-r from-amber-400 to-orange-400' : 'bg-white/10'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 w-5 h-5 rounded-full transition-all ${
+                          showLogoOnVideo ? 'bg-white right-0.5 shadow-lg' : 'bg-white/60 left-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
 
-                  {/* Search Input with Icon */}
-                  <div className="mb-6 relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="11" cy="11" r="8"/>
-                        <path d="m21 21-4.35-4.35"/>
-                      </svg>
+                {/* Conditional Content - Only show when toggle is ON */}
+                {showLogoOnVideo && (
+                  <>
+                    {/* Upload New Logo Button */}
+                    <div className="mb-6">
+                      <label className="block cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                        />
+                        <div className="w-full py-3 backdrop-blur-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-amber-400/30 transition-all text-white rounded-lg text-center flex items-center justify-center gap-2">
+                          <Upload className="w-4 h-4" />
+                          <span className="text-sm">Upload Your Logo</span>
+                        </div>
+                      </label>
                     </div>
+
+                    {/* Previously Uploaded Logos */}
+                    {previousLogos.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-xs mb-2 text-white/70">Previously Uploaded</h3>
+                        <div className="grid grid-cols-4 gap-2">
+                          {previousLogos.map((logo) => (
+                            <motion.button
+                              key={logo.id}
+                              onClick={() => {
+                                setUploadedLogo(logo.url);
+                                setSelectedLogo(null);
+                              }}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              className={`relative p-2 rounded-lg border transition-all ${
+                                uploadedLogo === logo.url
+                                  ? 'border-amber-400/30 bg-white/10 shadow-lg'
+                                  : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="w-full aspect-square rounded bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden">
+                                <img src={logo.url} alt="Previous logo" className="w-full h-full object-contain" />
+                              </div>
+                              
+                              {/* Check Mark */}
+                              {uploadedLogo === logo.url && (
+                                <motion.div
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="absolute top-1 right-1 w-4 h-4 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full flex items-center justify-center shadow-lg"
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-black" />
+                                </motion.div>
+                              )}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Skip Message */}
+                <p className="text-xs text-white/50 text-center">
+                  You can skip this step if you don&apos;t need branding
+                </p>
+              </>
+            )}
+
+            {/* Step 2: Add Music */}
+            {currentStep === 2 && (
+              <>
+                <div className="mb-8">
+                  <h2 className="text-2xl mb-2">Add Music</h2>
+                  <p className="text-white/60 text-sm">
+                    Choose background music for your video
+                  </p>
+                </div>
+
+                {/* Music Filter */}
+                <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                  {musicFilters.map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setMusicFilter(filter)}
+                      className={`px-4 py-2 rounded-lg whitespace-nowrap transition-all text-sm ${
+                        musicFilter === filter
+                          ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-black'
+                          : 'bg-white/5 border border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Music Library */}
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  {filteredMusic.map((song) => (
+                    <motion.button
+                      key={song.id}
+                      onClick={() => setSelectedMusic(song.id)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={`relative p-4 rounded-lg border transition-all ${
+                        selectedMusic === song.id
+                          ? 'border-amber-400/30 bg-white/10 shadow-lg'
+                          : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                      }`}
+                    >
+                      <div className="w-full aspect-square rounded bg-white/10 mb-3 flex items-center justify-center">
+                        <div className={`w-12 h-12 rounded-full ${song.color} flex items-center justify-center`}>
+                          <Music className="w-6 h-6 text-white" />
+                        </div>
+                      </div>
+                      <h4 className="text-sm font-medium text-white mb-1">{song.name}</h4>
+                      <p className="text-xs text-white/60">{song.category}</p>
+                      
+                      {/* Check Mark */}
+                      {selectedMusic === song.id && (
+                        <motion.div
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="absolute top-2 right-2 w-6 h-6 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full flex items-center justify-center shadow-lg"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-black" />
+                        </motion.div>
+                      )}
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/* Skip Message */}
+                <p className="text-xs text-white/50 text-center">
+                  You can skip this step if you don&apos;t need background music
+                </p>
+              </>
+            )}
+
+            {/* Step 3: Add Address */}
+            {currentStep === 3 && (
+              <>
+                <div className="mb-8">
+                  <h2 className="text-2xl mb-2">Add Address</h2>
+                  <p className="text-white/60 text-sm">
+                    Add property location information
+                  </p>
+                </div>
+
+                {/* Address Input */}
+                <div className="mb-6">
+                  <div className="relative">
                     <input
                       type="text"
                       value={addressQuery}
                       onChange={(e) => setAddressQuery(e.target.value)}
                       onFocus={() => setShowAddressSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
-                      placeholder="Enter your address"
-                      className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all text-white placeholder:text-white/40"
+                      placeholder="Enter property address..."
+                      className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all text-white placeholder:text-white/30"
                     />
-
-                    {/* Address Suggestions Dropdown */}
-                    {showAddressSuggestions && filteredAddresses.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="absolute top-full left-0 right-0 mt-2 backdrop-blur-md bg-[#131519]/95 border border-white/10 rounded-lg shadow-2xl overflow-hidden max-h-[300px] overflow-y-auto z-10"
-                      >
-                        {filteredAddresses.map((item) => (
-                          <button
-                            key={item.id}
-                            onClick={() => {
-                              setAddressQuery(`${item.address}, ${item.city}, ${item.state}`);
-                              setCity(item.city);
-                              setState(item.state);
-                              setShowAddressSuggestions(false);
-                            }}
-                            className="w-full px-4 py-3 text-left hover:bg-white/10 transition-colors border-b border-white/5 last:border-b-0"
-                          >
-                            <div className="flex items-start gap-3">
-                              <MapPin className="w-4 h-4 text-white/40 flex-shrink-0 mt-0.5" />
-                              <div>
-                                <p className="text-sm text-white">{item.address}</p>
-                                <p className="text-xs text-white/40">{item.city}, {item.state}, {item.country}</p>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                   </div>
 
-                  {/* Interactive Map */}
-                  <div className="mb-6 rounded-lg overflow-hidden border border-white/10 bg-white/5">
-                    <InteractiveMap 
-                      markerPosition={markerPosition}
-                      onPositionChange={setMarkerPosition}
-                    />
-                    
-                    {/* Address Info Card (if address entered) */}
-                    {addressQuery && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="backdrop-blur-md bg-white/10 border-t border-white/20 p-4"
-                      >
-                        <div className="flex items-start gap-3">
-                          <MapPin className="w-5 h-5 text-white/60 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <p className="text-sm text-white mb-1">{addressQuery}</p>
-                            <p className="text-xs text-white/60">Property Location</p>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                    
-                    {/* Map Instructions */}
-                    <div className="px-4 py-3 bg-white/5 border-t border-white/10">
-                      <p className="text-xs text-white/60 text-center">
-                        Click on the map to set location or drag the marker to adjust
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Skip Message */}
-                  <p className="text-xs text-white/50 text-center">
-                    💡 You can skip this step if you don&apos;t want to show an address
-                  </p>
-                </>
-              )}
-
-              {/* Step 4: Project Summary */}
-              {currentStep === 4 && (
-                <>
-                  {/* Header */}
-                  <div className="mb-8">
-                    <h2 className="text-2xl mb-2">Review & Create</h2>
-                    <p className="text-white/60 text-sm">Confirm your project details</p>
-                  </div>
-
-                  {/* Project Overview - 3 Column Stats */}
-                  <div className="grid grid-cols-3 gap-3 mb-6">
-                    {/* Photos Count */}
-                    <div className="p-4 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Image className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs text-white/60">Photos</span>
-                      </div>
-                      <p className="text-2xl text-white">{uploadedPhotos.length}</p>
-                    </div>
-
-                    {/* Music Status */}
-                    <div className="p-4 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Music className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs text-white/60">Music</span>
-                      </div>
-                      <p className="text-sm text-white">
-                        {selectedMusic ? (
-                          <span className="flex items-center gap-1 text-green-400">
-                            <CheckCircle2 className="w-4 h-4" />
-                            Added
-                          </span>
-                        ) : (
-                          <span className="text-white/40">None</span>
-                        )}
-                      </p>
-                    </div>
-
-                    {/* Logo Status */}
-                    <div className="p-4 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <svg className="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                          <circle cx="8.5" cy="8.5" r="1.5"/>
-                          <path d="M21 15l-5-5L5 21"/>
-                        </svg>
-                        <span className="text-xs text-white/60">Logo</span>
-                      </div>
-                      <p className="text-sm text-white">
-                        {showLogoOnVideo ? (
-                          <span className="flex items-center gap-1 text-green-400">
-                            <CheckCircle2 className="w-4 h-4" />
-                            Added
-                          </span>
-                        ) : (
-                          <span className="text-white/40">None</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Video Details - Single Card */}
-                  <div className="p-6 backdrop-blur-md bg-white/5 border border-white/10 rounded-xl mb-6">
-                    <h3 className="text-sm mb-4 text-white/90 flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-400" />
-                      Video Details
-                    </h3>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Duration</span>
-                        <span className="text-sm text-white">{uploadedPhotos.length * 3}s</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Resolution</span>
-                        <span className="text-sm text-white">1920×1080 HD</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Format</span>
-                        <span className="text-sm text-white">MP4</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Frame Rate</span>
-                        <span className="text-sm text-white">30 FPS</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Transitions</span>
-                        <span className="text-sm text-white">Smooth fades</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Quality</span>
-                        <span className="text-sm text-white">High</span>
-                      </div>
-                    </div>
-                  </div>
-
-
-
-                  {/* Free Video Option */}
-                  {canUseFreeCredit && (
-                    <div className="mb-6 p-6 backdrop-blur-md bg-gradient-to-br from-green-500/10 to-emerald-500/5 border border-green-500/20 rounded-xl">
-                      <div className="flex items-start gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30 flex items-center justify-center flex-shrink-0">
-                          <Gift className="w-6 h-6 text-green-400" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between mb-3">
-                            <div>
-                              <h4 className="text-lg mb-1 text-white">Use Free Video Credit</h4>
-                              <p className="text-sm text-white/60">
-                                You have {availableFreeSeconds}s of free video time available
-                              </p>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={useFreeVideo}
-                                onChange={(e) => setUseFreeVideo(e.target.checked)}
-                                className="sr-only peer"
-                              />
-                              <div className="w-11 h-6 bg-white/20 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-green-400/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                            </label>
-                          </div>
-                          {useFreeVideo && (
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2 text-sm text-green-400">
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span>
-                                  {isFullyFree 
-                                    ? `Using ${freeSecondsToUse}s free credit (${remainingFreeSeconds}s remaining)`
-                                    : `Using ${freeSecondsToUse}s free credit + ${paidSeconds}s paid (${remainingFreeSeconds}s remaining)`
-                                  }
-                                </span>
-                              </div>
-                              {!isFullyFree && (
-                                <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                                  <div className="w-4 h-4 rounded-full bg-yellow-500/20 border border-yellow-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                    <span className="text-yellow-400 text-xs">!</span>
-                                  </div>
-                                  <p className="text-xs text-yellow-400/90">
-                                    Your video is {currentVideoSeconds}s long. {freeSecondsToUse}s will be free, ${(paidSeconds * 0.5).toFixed(2)} charge for remaining {paidSeconds}s.
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                  {/* Address Suggestions */}
+                  {showAddressSuggestions && filteredAddresses.length > 0 && (
+                    <div className="absolute z-10 w-full mt-2 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredAddresses.map((address) => (
+                        <button
+                          key={address.id}
+                          onClick={() => {
+                            setAddressQuery(`${address.address}, ${address.city}, ${address.state}`);
+                            setShowAddressSuggestions(false);
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-white/10 transition-all border-b border-white/5 last:border-b-0"
+                        >
+                          <div className="text-sm text-white">{address.address}</div>
+                          <div className="text-xs text-white/60">{address.city}, {address.state}</div>
+                        </button>
+                      ))}
                     </div>
                   )}
-
-                  {/* Cost Card - Prominent */}
-                  <div className="mb-8 p-6 backdrop-blur-md bg-gradient-to-br from-amber-400/10 to-orange-400/5 border border-amber-400/20 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-white/60 mb-2 uppercase tracking-wider">Total Cost</p>
-                        {useFreeVideo && isFullyFree ? (
-                          <>
-                            <p className="text-3xl text-green-400">FREE</p>
-                            <p className="text-xs text-white/40 mt-1">Using {freeSecondsToUse}s free credit</p>
-                          </>
-                        ) : useFreeVideo && !isFullyFree ? (
-                          <>
-                            <p className="text-3xl text-amber-400">${(paidSeconds * 0.5).toFixed(2)}</p>
-                            <p className="text-xs text-white/40 mt-1">{freeSecondsToUse}s free + {paidSeconds}s paid (${(paidSeconds * 0.5).toFixed(2)})</p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-3xl text-amber-400">${(currentVideoSeconds * 0.5).toFixed(2)}</p>
-                            <p className="text-xs text-white/40 mt-1">{currentVideoSeconds}s video × $0.50/s</p>
-                          </>
-                        )}
-                      </div>
-                      {useFreeVideo && isFullyFree ? (
-                        <Gift className="w-8 h-8 text-green-400/40" />
-                      ) : (
-                        <CreditCard className="w-8 h-8 text-amber-400/40" />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* CTA Buttons */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setCurrentStep(Math.max(currentStep - 1, 0))}
-                      className="flex items-center justify-center gap-2 px-6 py-4 backdrop-blur-md bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 transition-all"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M19 12H5M12 19l-7-7 7-7"/>
-                      </svg>
-                      <span>Back</span>
-                    </button>
-
-                    <button 
-                      onClick={() => {
-                        setIsCreating(true);
-                        setCreationStep('processing');
-                        setTimeout(() => {
-                          setCreationStep('completed');
-                        }, 3000);
-                      }}
-                      className="flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-xl hover:shadow-2xl hover:shadow-amber-400/20 hover:scale-[1.02] transition-all"
-                    >
-                      <span>Create Video</span>
-                      <CheckCircle2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Navigation Buttons - Only show for steps 0-3 */}
-              {currentStep < 4 && (
-                <div className="mt-8 flex justify-between">
-                  {currentStep > 0 && (
-                    <button
-                      onClick={() => setCurrentStep(Math.max(currentStep - 1, 0))}
-                      className="px-6 py-3 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all text-sm"
-                    >
-                      ← Back
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setCurrentStep(Math.min(currentStep + 1, steps.length - 1))}
-                    disabled={currentStep === 0 && uploadedPhotos.length === 0}
-                    className="px-6 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg hover:scale-105 transition-all text-sm ml-auto disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none"
-                  >
-                    Next →
-                  </button>
                 </div>
-              )}
-            </motion.div>
-          </div>
+
+                {/* Interactive Map */}
+                <div className="mb-6">
+                  <div className="w-full h-64 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+                    <div className="text-center">
+                      <MapPin className="w-8 h-8 text-white/40 mx-auto mb-2" />
+                      <p className="text-sm text-white/60">Interactive map would appear here</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Skip Message */}
+                <p className="text-xs text-white/50 text-center">
+                  You can skip this step if you don&apos;t need location information
+                </p>
+              </>
+            )}
+
+            {/* Step 4: Project Summary */}
+            {currentStep === 4 && (
+              <>
+                <div className="mb-8">
+                  <h2 className="text-2xl mb-2">Project Summary</h2>
+                  <p className="text-white/60 text-sm">
+                    Review your project before creating
+                  </p>
+                </div>
+
+                {/* Summary Cards */}
+                <div className="space-y-4 mb-6">
+                  <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-amber-500/20 rounded-lg flex items-center justify-center">
+                          <Upload className="w-5 h-5 text-amber-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-medium text-white">Photos</h4>
+                          <p className="text-xs text-white/60">{uploadedPhotos.length} files uploaded</p>
+                        </div>
+                      </div>
+                      <span className="text-sm text-white/80">{currentVideoSeconds}s video</span>
+                    </div>
+                  </div>
+
+                  <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                          <Image className="w-5 h-5 text-blue-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-medium text-white">Branding</h4>
+                          <p className="text-xs text-white/60">{showLogoOnVideo ? 'Logo added' : 'No logo'}</p>
+                        </div>
+                      </div>
+                      {showLogoOnVideo && <span className="text-sm text-white/80">✓</span>}
+                    </div>
+                  </div>
+
+                  <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                          <Music className="w-5 h-5 text-purple-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-medium text-white">Music</h4>
+                          <p className="text-xs text-white/60">{selectedMusic ? 'Music selected' : 'No music'}</p>
+                        </div>
+                      </div>
+                      {selectedMusic && <span className="text-sm text-white/80">✓</span>}
+                    </div>
+                  </div>
+
+                  <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                          <MapPin className="w-5 h-5 text-green-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-medium text-white">Location</h4>
+                          <p className="text-xs text-white/60">{addressQuery ? 'Address added' : 'No address'}</p>
+                        </div>
+                      </div>
+                      {addressQuery && <span className="text-sm text-white/80">✓</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pricing Info */}
+                <div className="backdrop-blur-md bg-gradient-to-r from-amber-400/10 to-orange-400/10 border border-amber-400/20 rounded-lg p-4 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium text-amber-400">Estimated Cost</h4>
+                      <p className="text-xs text-white/60">
+                        {isFullyFree ? 'Free with credits' : `${paidSeconds} paid seconds`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-amber-400">
+                        {isFullyFree ? 'FREE' : `$${(paidSeconds * 0.15).toFixed(2)}`}
+                      </div>
+                      <p className="text-xs text-white/60">
+                        ${isFullyFree ? '0.00' : (paidSeconds * 0.15).toFixed(2)} total
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Navigation */}
+            <div className="flex items-center justify-between mt-8">
+              <button
+                onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
+                disabled={currentStep === 0}
+                className="px-6 py-3 backdrop-blur-md bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => setCurrentStep(Math.min(currentStep + 1, steps.length - 1))}
+                disabled={currentStep === 0 && !hasUploadedFiles && uploadedPhotos.length === 0}
+                className="px-6 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg hover:scale-105 transition-all text-sm ml-auto disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none"
+              >
+                {currentStep === steps.length - 1 ? 'Create Video' : 'Next →'}
+              </button>
+            </div>
+          </motion.div>
         </div>
       </div>
     </div>

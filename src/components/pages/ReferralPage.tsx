@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Gift, Copy, Check, Users, CreditCard, Award, Clock, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
 import { DashboardHeader } from "../layout/DashboardHeader";

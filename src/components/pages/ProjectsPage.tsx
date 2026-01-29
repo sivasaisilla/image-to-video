@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Infinity, Plus, FolderOpen, Image, CreditCard, User, ChevronDown, Search, RefreshCw, Trash2, Home, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { AIImageEditorPage } from "../editors";
@@ -16,15 +16,20 @@ interface ProjectsPageProps {
 }
 
 interface Project {
-  id: string;
+  id: number;
   title: string;
-  status: 'in-progress' | 'generating' | 'unpaid' | 'completed';
-  thumbnail?: string;
-  createdAt: string;
-  videoUrl?: string;
-  description?: string;
-  location?: string;
-  rating?: number;
+  description: string;
+  content_type: 'video' | 'image';
+  file_url: string;
+  thumbnail_url: string;
+  file_size: number;
+  duration?: number;
+  format: string;
+  status: string;
+  created_at: string;
+  location_name?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile, onNavigateToSettings, onNavigateToPlans, onNavigateToReferral, onProjectSelect }: ProjectsPageProps) {
@@ -33,10 +38,89 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [showSubscriptionPage, setShowSubscriptionPage] = useState(false);
   const [showTopUpPage, setShowTopUpPage] = useState(false);
+  
+  // Real data states
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [stats, setStats] = useState(null);
+
+  const API_BASE = 'http://localhost:5000/api';
+
+  // Fetch user projects
+  const fetchProjects = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('No authentication token found');
+        setLoading(false);
+        return;
+      }
+
+      // Decode JWT token to get user ID
+      const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+      const userId = tokenPayload.userId;
+
+      const response = await fetch(`${API_BASE}/content/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch projects');
+      }
+
+      const data = await response.json();
+      setProjects(data.content || []);
+      setStats(data.stats || null);
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+      setError('Failed to load projects');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  const handleDeleteProject = async (id: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('No authentication token found');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/content/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete project');
+      }
+
+      await fetchProjects(); // Refresh projects
+      setDeleteConfirm(null);
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      setError('Failed to delete project');
+    }
+  };
 
   const handleLogoutClick = () => {
     setShowLogoutDialog(true);
@@ -46,64 +130,6 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
   const handleLogoutConfirm = () => {
     setShowLogoutDialog(false);
     onLogout();
-  };
-
-  const [projects, setProjects] = useState<Project[]>([
-    {
-      id: '1',
-      title: 'New Market',
-      status: 'in-progress',
-      createdAt: '1 minute ago',
-      location: 'New Market, MD',
-      description: 'Modern commercial property in the heart of New Market.',
-      rating: 4.8,
-    },
-    {
-      id: '2',
-      title: '1994 Delkalb Avenue',
-      status: 'completed',
-      thumbnail: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&h=600&fit=crop',
-      createdAt: '21 Days ago',
-      location: 'Brooklyn, NY',
-      description: 'A stunning real estate showcase video featuring this beautiful property with professional cinematography and smooth transitions.',
-      rating: 5.0,
-      videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-    },
-    {
-      id: '3',
-      title: 'Sunset Boulevard Villa',
-      status: 'completed',
-      thumbnail: 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&h=600&fit=crop',
-      createdAt: '5 Days ago',
-      location: 'Los Angeles, CA',
-      description: 'Luxurious villa with stunning sunset views.',
-      rating: 4.9,
-    },
-    {
-      id: '4',
-      title: 'Downtown Loft',
-      status: 'generating',
-      thumbnail: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800&h=600&fit=crop',
-      createdAt: '2 hours ago',
-      location: 'Chicago, IL',
-      description: 'Modern loft in the heart of downtown.',
-      rating: 4.7,
-    },
-    {
-      id: '5',
-      title: 'Beach House Miami',
-      status: 'unpaid',
-      thumbnail: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&h=600&fit=crop',
-      createdAt: '10 Days ago',
-      location: 'Miami, FL',
-      description: 'Oceanfront property with private beach access.',
-      rating: 5.0,
-    },
-  ]);
-
-  const handleDeleteProject = (id: string) => {
-    setProjects(projects.filter(p => p.id !== id));
-    setDeleteConfirm(null);
   };
 
   // Filter projects based on active filters
@@ -140,7 +166,7 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
       const query = searchQuery.toLowerCase();
       searchMatch = 
         project.title.toLowerCase().includes(query) ||
-        project.location?.toLowerCase().includes(query) ||
+        project.location_name?.toLowerCase().includes(query) ||
         project.description?.toLowerCase().includes(query) || false;
     }
 
@@ -259,6 +285,39 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
             </button>
           </div>
 
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && (
+            <div className="bg-red-500/20 border border-red-500/50 rounded-md p-4 mb-6">
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loading && !error && filteredProjects.length === 0 && (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4">
+                <FolderOpen className="w-8 h-8 text-white/40" />
+              </div>
+              <h3 className="text-lg text-white mb-2">No projects yet</h3>
+              <p className="text-white/60 text-sm mb-4">
+                Upload your first image or video to get started
+              </p>
+              <button
+                onClick={onNavigateToCreate}
+                className="px-4 py-2 bg-white text-black rounded-md hover:bg-white/90 transition-all text-sm"
+              >
+                Create First Project
+              </button>
+            </div>
+          )}
+
           {/* Projects Grid */}
           <div className="grid lg:grid-cols-3 gap-5">
             {filteredProjects.map((project) => (
@@ -268,9 +327,9 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
               >
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-white/5 flex items-center justify-center">
-                  {project.thumbnail ? (
+                  {project.thumbnail_url ? (
                     <img
-                      src={project.thumbnail}
+                      src={project.thumbnail_url}
                       alt={project.title}
                       className="w-full h-full object-cover"
                     />
@@ -279,7 +338,7 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
                       <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
                         <Home className="w-6 h-6 text-white/40" />
                       </div>
-                      <p className="text-xs text-white/60">New Market</p>
+                      <p className="text-xs text-white/60">No thumbnail</p>
                     </div>
                   )}
                 </div>
@@ -307,7 +366,7 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
                     </div>
                   </div>
 
-                  <p className="text-xs text-white/60 mb-3">{project.createdAt}</p>
+                  <p className="text-xs text-white/60 mb-3">{new Date(project.created_at).toLocaleDateString()}</p>
 
                   {project.status === 'completed' && (
                     <button 

@@ -17,12 +17,13 @@ import {
   SettingsPage, 
   SubscriptionPage, 
   ProjectDetailPage, 
-  ReferralPage 
+  ReferralPage,
+  ForgotPasswordPage 
 } from "./components/pages";
 import { ReferralPopup } from "./components/modals";
 import { useState, useEffect } from "react";
 
-type ViewType = "home" | "login" | "signup" | "dashboard" | "projects" | "profile" | "settings" | "subscription" | "project-detail" | "referral";
+type ViewType = "home" | "login" | "signup" | "dashboard" | "projects" | "profile" | "settings" | "subscription" | "project-detail" | "referral" | "forgot-password";
 
 interface Project {
   id: string;
@@ -69,7 +70,7 @@ export default function App() {
   if (currentView === "profile") {
     return (
       <ProfilePage 
-        onBack={() => setCurrentView("dashboard")}
+        onBack={() => setCurrentView("home")}
         onLogout={() => setCurrentView("home")} 
         onNavigateToCreate={() => setCurrentView("dashboard")}
         onNavigateToProjects={() => setCurrentView("projects")}
@@ -84,7 +85,7 @@ export default function App() {
   if (currentView === "settings") {
     return (
       <SettingsPage 
-        onBack={() => setCurrentView("dashboard")}
+        onBack={() => setCurrentView("home")}
         onLogout={() => setCurrentView("home")} 
         onNavigateToCreate={() => setCurrentView("dashboard")}
         onNavigateToProjects={() => setCurrentView("projects")}
@@ -133,7 +134,18 @@ export default function App() {
       <LoginPage
         onBack={() => setCurrentView("home")}
         onSwitchToRegister={() => setCurrentView("signup")}
+        onSwitchToForgotPassword={() => setCurrentView("forgot-password")}
         onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
+
+  // Forgot Password Page
+  if (currentView === "forgot-password") {
+    return (
+      <ForgotPasswordPage
+        onBack={() => setCurrentView("home")}
+        onSwitchToLogin={() => setCurrentView("login")}
       />
     );
   }

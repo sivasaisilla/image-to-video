@@ -15,6 +15,8 @@ function initializeDatabase() {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           email TEXT UNIQUE NOT NULL,
           password TEXT NOT NULL,
+          name TEXT,
+          phone TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -25,18 +27,38 @@ function initializeDatabase() {
           return;
         }
         
-        // Create index for faster email lookups
+        // Add name and phone columns if they don't exist (for existing databases)
         db.run(`
-          CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
+          ALTER TABLE users ADD COLUMN name TEXT
         `, (err) => {
-          if (err) {
-            console.error('Error creating email index:', err);
-            reject(err);
-            return;
+          // Ignore error if column already exists
+          if (err && !err.message.includes('duplicate column name')) {
+            console.error('Error adding name column:', err);
           }
           
-          console.log('✅ SQLite database initialized successfully');
-          resolve();
+          // Add phone column
+          db.run(`
+            ALTER TABLE users ADD COLUMN phone TEXT
+          `, (err) => {
+            // Ignore error if column already exists
+            if (err && !err.message.includes('duplicate column name')) {
+              console.error('Error adding phone column:', err);
+            }
+            
+            // Create index for faster email lookups
+            db.run(`
+              CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
+            `, (err) => {
+              if (err) {
+                console.error('Error creating email index:', err);
+                reject(err);
+                return;
+              }
+              
+              console.log('✅ SQLite database initialized successfully');
+              resolve();
+            });
+          });
         });
       });
     });
@@ -60,16 +82,18 @@ const dbOperations = {
   },
 
   // Create new user
-  async createUser(email, hashedPassword) {
+  async createUser(email, hashedPassword, name, phone) {
     return new Promise((resolve, reject) => {
       db.run(
-        'INSERT INTO users (email, password) VALUES (?, ?)',
-        [email, hashedPassword],
+        'INSERT INTO users (email, password, name, phone) VALUES (?, ?, ?, ?)',
+        [email, hashedPassword, name, phone],
         function(err) {
           if (err) reject(err);
           else resolve({
             id: this.lastID,
             email,
+            name,
+            phone,
             created_at: new Date().toISOString()
           });
         }
@@ -81,7 +105,7 @@ const dbOperations = {
   async findUserByEmail(email) {
     return new Promise((resolve, reject) => {
       db.get(
-        'SELECT id, email, password FROM users WHERE email = ?',
+        'SELECT id, email, password, name, phone FROM users WHERE email = ?',
         [email],
         (err, row) => {
           if (err) reject(err);

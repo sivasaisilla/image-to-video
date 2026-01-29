@@ -5,10 +5,11 @@ import { useState } from "react";
 interface LoginPageProps {
   onBack: () => void;
   onSwitchToRegister: () => void;
+  onSwitchToForgotPassword: () => void;
   onLoginSuccess: () => void;
 }
 
-export function LoginPage({ onBack, onSwitchToRegister, onLoginSuccess }: LoginPageProps) {
+export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword, onLoginSuccess }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -193,6 +194,7 @@ export function LoginPage({ onBack, onSwitchToRegister, onLoginSuccess }: LoginP
                   </label>
                   <button
                     type="button"
+                    onClick={onSwitchToForgotPassword}
                     className="text-sm text-amber-400 hover:text-amber-300 transition-colors"
                   >
                     Forgot Password?

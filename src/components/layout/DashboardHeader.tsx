@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import svgPaths from "@/imports/svg-nqiqmt8jqs";
 
 interface DashboardHeaderProps {
@@ -10,6 +10,18 @@ interface DashboardHeaderProps {
   onNavigateToPlans?: () => void;
   onNavigateToReferral?: () => void;
   activePage?: 'create' | 'projects' | 'plans' | 'referral';
+}
+
+interface UserProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  phone: string;
+  company: string;
+  bio: string;
+  profileImageUrl: string;
+  subscriptionPlan: string;
+  createdAt: string;
 }
 
 function Icon() {
@@ -215,11 +227,11 @@ function Container2() {
   );
 }
 
-function Text1() {
+function Text1({ userName }: { userName?: string }) {
   return (
     <div className="basis-0 grow min-h-px min-w-px relative shrink-0" data-name="Text">
       <div className="bg-clip-padding border-0 border-[transparent] border-solid content-stretch flex h-full items-start relative">
-        <p className="font-['Poppins:Regular',sans-serif] leading-[20px] not-italic relative shrink-0 text-[16px] text-center text-nowrap text-white">John Doe</p>
+        <p className="font-['Poppins:Regular',sans-serif] leading-[20px] not-italic relative shrink-0 text-[16px] text-center text-nowrap text-white">{userName || 'User'}</p>
       </div>
     </div>
   );
@@ -235,10 +247,10 @@ function Text2() {
   );
 }
 
-function Container3() {
+function Container3({ userName }: { userName?: string }) {
   return (
     <div className="content-stretch flex flex-col h-[36px] items-start relative shrink-0" data-name="Container">
-      <Text1 />
+      <Text1 userName={userName} />
       <Text2 />
     </div>
   );
@@ -256,13 +268,13 @@ function Icon2({ isOpen }: { isOpen: boolean }) {
   );
 }
 
-function Frame({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (open: boolean) => void }) {
+function Frame({ isOpen, setIsOpen, userName }: { isOpen: boolean; setIsOpen: (open: boolean) => void; userName?: string }) {
   return (
     <button 
       onClick={() => setIsOpen(!isOpen)}
       className="content-stretch flex gap-[12px] items-center relative shrink-0 hover:opacity-80 transition-opacity"
     >
-      <Container3 />
+      <Container3 userName={userName} />
       <Icon2 isOpen={isOpen} />
     </button>
   );
@@ -285,6 +297,34 @@ function Frame1({
   onNavigateToPlans?: () => void;
   onLogout?: () => void;
 }) {
+  const [profileData, setProfileData] = useState<UserProfile | null>(null);
+  const API_BASE = 'http://localhost:5000/api';
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch(`${API_BASE}/user/profile`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setProfileData(data);
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
   const handleLogout = () => {
     const confirmed = window.confirm('Çıkış yapmak istediğinizden emin misiniz?');
     if (confirmed) {
@@ -297,7 +337,7 @@ function Frame1({
     <div className="relative">
       <div className="content-stretch flex gap-[12px] items-center relative shrink-0">
         <Container2 />
-        <Frame isOpen={isOpen} setIsOpen={setIsOpen} />
+        <Frame isOpen={isOpen} setIsOpen={setIsOpen} userName={profileData?.fullName} />
       </div>
       
       {/* Dropdown Menu */}
