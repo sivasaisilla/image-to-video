@@ -64,9 +64,22 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
         return;
       }
 
-      // Decode JWT token to get user ID
-      const tokenPayload = JSON.parse(atob(token.split('.')[1]));
-      const userId = tokenPayload.userId;
+      // Extract user ID from mock token format
+      let userId;
+      if (token.startsWith('mock_firebase_token_')) {
+        const timestamp = token.replace('mock_firebase_token_', '');
+        userId = 'user_' + timestamp;
+      } else {
+        // Fallback: try to decode as JWT (for future compatibility)
+        try {
+          const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+          userId = tokenPayload.userId;
+        } catch (e) {
+          setError('Invalid authentication token');
+          setLoading(false);
+          return;
+        }
+      }
 
       const response = await fetch(`${API_BASE}/content/user/${userId}`, {
         headers: {

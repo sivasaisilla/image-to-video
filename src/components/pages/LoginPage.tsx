@@ -45,6 +45,10 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
           setError(
             `${errorData.error}\n\nClick here to sign up`
           );
+        } else if (errorData.code === 'WRONG_PASSWORD') {
+          setError(
+            `${errorData.error}\n\nPlease check your password and try again.`
+          );
         } else {
           setError(errorData.error || 'Login failed. Please check your credentials.');
         }

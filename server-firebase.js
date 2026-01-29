@@ -2,16 +2,20 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
 import { sendOTPEmail, testEmailConfig } from './email-service.js';
 import { firebaseAuth, userData, contentStorage, referralManager, locationService, sessionManager } from './firebase-config.js';
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, limit, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const app = express();
 const PORT = process.env.PORT || 3003;
 
-// In-memory user storage (in production, use database)
-if (!global.userStore) {
-  global.userStore = new Map();
-}
+// Initialize Firebase Firestore
+const db = getFirestore();
+const usersCollection = collection(db, 'users');
+
+console.log('🔥 Firebase Firestore initialized for user storage');
 
 // Multer configuration for file uploads
 const upload = multer({
@@ -68,10 +72,15 @@ const authenticateToken = async (req, res, next) => {
       const timestamp = token.replace('mock_firebase_token_', '');
       userId = 'user_' + timestamp;
       
-      // Try to find user in our user store
-      const userData = global.userStore.get(userId);
-      if (userData) {
-        email = userData.email;
+      // Try to find user in Firebase Firestore
+      try {
+        const userDocRef = doc(usersCollection, userId);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          email = userDoc.data().email;
+        }
+      } catch (error) {
+        console.error('Error finding user in Firebase:', error);
       }
     }
     
@@ -188,29 +197,48 @@ app.post('/api/auth/signin', async (req, res) => {
     // In production, you would check Firebase Auth
     const registeredEmails = []; // Empty array - no hardcoded emails
     
-    // Check if user exists in our user store
+    // Check if user exists in Firebase Firestore
     let foundUser = null;
-    for (let [userId, userData] of global.userStore.entries()) {
-      if (userData.email === email) {
-        foundUser = { userId, ...userData };
-        break;
+    try {
+      const userQuery = query(usersCollection, where('email', '==', email));
+      const querySnapshot = await getDocs(userQuery);
+      
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        foundUser = {
+          userId: userDoc.id,
+          ...userDoc.data()
+        };
       }
+    } catch (error) {
+      console.error('Error querying Firebase:', error);
     }
     
     if (foundUser) {
-      // User exists, allow login
-      const token = 'mock_firebase_token_' + foundUser.userId.replace('user_', '');
-      console.log('Login successful for:', email, 'userId:', foundUser.userId);
-      res.json({
-        success: true,
-        user: {
-          uid: foundUser.userId,
-          email: foundUser.email,
-          fullName: foundUser.fullName,
-          phone: foundUser.phone
-        },
-        token
-      });
+      // User exists, check password
+      console.log('Login attempt - stored password:', foundUser.password, 'entered password:', password);
+      console.log('Password comparison:', foundUser.password === password);
+      
+      if (foundUser.password === password) {
+        const token = 'mock_firebase_token_' + foundUser.userId.replace('user_', '');
+        console.log('Login successful for:', email, 'userId:', foundUser.userId);
+        res.json({
+          success: true,
+          user: {
+            uid: foundUser.userId,
+            email: foundUser.email,
+            fullName: foundUser.fullName,
+            phone: foundUser.phone
+          },
+          token
+        });
+      } else {
+        console.log('Login failed - wrong password for:', email);
+        res.status(401).json({ 
+          error: 'Incorrect password. Please try again.',
+          code: 'WRONG_PASSWORD'
+        });
+      }
     } else {
       // User not registered
       console.log('Login failed - user not registered:', email);
@@ -256,14 +284,15 @@ app.post('/api/auth/signup', async (req, res) => {
     const token = 'mock_firebase_token_' + Date.now();
     const userId = 'user_' + Date.now();
     
-    // Store user data in memory
+    // Store user data in Firebase Firestore
     const userData = {
       uid: userId,
       email: email,
       fullName: name || 'New User',
       phone: phone || '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      password: password, // Store password (in production, hash it)
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       subscriptionPlan: 'free',
       bio: '',
       company: '',
@@ -282,8 +311,15 @@ app.post('/api/auth/signup', async (req, res) => {
       }
     };
     
-    global.userStore.set(userId, userData);
-    console.log('User stored in memory:', userData);
+    try {
+      // Save to Firebase Firestore
+      const userDocRef = doc(usersCollection, userId);
+      await setDoc(userDocRef, userData);
+      console.log('User saved to Firebase:', userData);
+    } catch (error) {
+      console.error('Error saving user to Firebase:', error);
+      return res.status(500).json({ error: 'Failed to save user to database' });
+    }
     
     console.log('Signup successful for:', email);
     
@@ -350,41 +386,48 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
     const { userId } = req.user;
     console.log('Getting profile for user:', userId);
     
-    // Try to get user from our user store
-    let userData = global.userStore.get(userId);
-    
-    if (userData) {
-      console.log('Found user data:', userData);
-      res.json(userData);
-    } else {
-      // Fallback to mock data if user not found
-      console.log('User not found, returning mock data');
-      const mockProfile = {
-        uid: userId,
-        email: 'test@example.com',
-        fullName: 'Test User',
-        phone: '+1 (555) 123-4567',
-        company: 'Test Company',
-        bio: 'Real estate professional',
-        profileImageUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-        subscriptionPlan: 'free',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stats: {
-          videosCreated: 5,
-          photosUploaded: 25,
-          totalVideoDuration: 180,
-          lastVideoCreated: new Date().toISOString()
-        },
-        referral: {
-          code: 'TEST123',
-          referredBy: null,
-          referralsCount: 3,
-          rewardsEarned: 15
-        }
-      };
+    // Try to get user from Firebase Firestore
+    try {
+      const userDocRef = doc(usersCollection, userId);
+      const userDoc = await getDoc(userDocRef);
       
-      res.json(mockProfile);
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        console.log('Found user data in Firebase:', userData);
+        res.json(userData);
+      } else {
+        // User not found in Firebase
+        console.log('User not found in Firebase, returning mock data');
+        const mockProfile = {
+          uid: userId,
+          email: 'test@example.com',
+          fullName: 'Test User',
+          phone: '+1 (555) 123-4567',
+          company: 'Test Company',
+          bio: 'Real estate professional',
+          profileImageUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
+          subscriptionPlan: 'free',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          stats: {
+            videosCreated: 5,
+            photosUploaded: 25,
+            totalVideoDuration: 180,
+            lastVideoCreated: new Date().toISOString()
+          },
+          referral: {
+            code: 'TEST123',
+            referredBy: null,
+            referralsCount: 3,
+            rewardsEarned: 15
+          }
+        };
+        
+        res.json(mockProfile);
+      }
+    } catch (error) {
+      console.error('Error fetching user from Firebase:', error);
+      res.status(500).json({ error: 'Failed to fetch profile' });
     }
   } catch (error) {
     console.error('Get profile error:', error);
@@ -400,53 +443,60 @@ app.put('/api/user/profile', authenticateToken, async (req, res) => {
     
     console.log('Updating profile for user:', userId, 'with updates:', updates);
     
-    // Get existing user data
-    let userData = global.userStore.get(userId);
-    
-    if (userData) {
-      // Update user data
-      const updatedData = {
-        ...userData,
-        ...updates,
-        updatedAt: new Date().toISOString()
-      };
+    // Get existing user data from Firebase
+    try {
+      const userDocRef = doc(usersCollection, userId);
+      const userDoc = await getDoc(userDocRef);
       
-      // Store updated data
-      global.userStore.set(userId, updatedData);
-      
-      console.log('Profile updated successfully:', updatedData);
-      res.json(updatedData);
-    } else {
-      // User not found, create new user with updates
-      const newUser = {
-        uid: userId,
-        email: updates.email || '',
-        fullName: updates.fullName || 'New User',
-        phone: updates.phone || '',
-        company: updates.company || '',
-        bio: updates.bio || '',
-        profileImageUrl: updates.profileImageUrl || '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        subscriptionPlan: 'free',
-        stats: {
-          videosCreated: 0,
-          photosUploaded: 0,
-          totalVideoDuration: 0,
-          lastVideoCreated: null
-        },
-        referral: {
-          code: 'REF' + Math.random().toString(36).substr(2, 6).toUpperCase(),
-          referredBy: null,
-          referralsCount: 0,
-          rewardsEarned: 0
-        },
-        ...updates
-      };
-      
-      global.userStore.set(userId, newUser);
-      console.log('Created new user with updates:', newUser);
-      res.json(newUser);
+      if (userDoc.exists()) {
+        // Update user data in Firebase
+        const existingData = userDoc.data();
+        const updatedData = {
+          ...existingData,
+          ...updates,
+          updatedAt: serverTimestamp()
+        };
+        
+        await updateDoc(userDocRef, updatedData);
+        
+        console.log('Profile updated successfully in Firebase:', updatedData);
+        res.json(updatedData);
+      } else {
+        // User not found, create new user with updates in Firebase
+        const newUser = {
+          uid: userId,
+          email: updates.email || '',
+          fullName: updates.fullName || 'New User',
+          phone: updates.phone || '',
+          company: updates.company || '',
+          bio: updates.bio || '',
+          profileImageUrl: updates.profileImageUrl || '',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          subscriptionPlan: 'free',
+          stats: {
+            videosCreated: 0,
+            photosUploaded: 0,
+            totalVideoDuration: 0,
+            lastVideoCreated: null
+          },
+          referral: {
+            code: 'REF' + Math.random().toString(36).substr(2, 6).toUpperCase(),
+            referredBy: null,
+            referralsCount: 0,
+            rewardsEarned: 0
+          },
+          ...updates
+        };
+        
+        await setDoc(userDocRef, newUser);
+        
+        console.log('Created new user with updates in Firebase:', newUser);
+        res.json(newUser);
+      }
+    } catch (error) {
+      console.error('Error updating user in Firebase:', error);
+      res.status(500).json({ error: 'Failed to update profile' });
     }
   } catch (error) {
     console.error('Update profile error:', error);
