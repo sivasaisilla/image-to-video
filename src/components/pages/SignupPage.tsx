@@ -59,7 +59,11 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
       const otpData = await otpResponse.json();
 
       if (otpData.success) {
-        setSuccess("OTP sent to your email! Please check your inbox.");
+        // Display the OTP in the success message for testing
+        const successMessage = otpData.otp 
+          ? `OTP sent to your email! For testing, your OTP is: ${otpData.otp}`
+          : "OTP sent to your email! Please check your inbox.";
+        setSuccess(successMessage);
         setCurrentStep('otp');
       } else {
         setError(otpData.error || "Failed to send OTP");
@@ -132,7 +136,14 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
           onSignupSuccess();
         }, 2000);
       } else {
-        setError(data.error || "Signup failed");
+        // Handle specific error for already registered email
+        if (data.code === 'EMAIL_ALREADY_IN_USE') {
+          setError(
+            `${data.error}\n\nTry signing in with this email or use a different email address.`
+          );
+        } else {
+          setError(data.error || "Signup failed");
+        }
       }
     } catch (err) {
       setError("Network error. Please try again.");

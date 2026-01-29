@@ -37,6 +37,9 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
   const [uploadedLogo, setUploadedLogo] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [isCreatingVideo, setIsCreatingVideo] = useState(false);
+  const [videoCreated, setVideoCreated] = useState(false);
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   
   const API_BASE = 'http://localhost:3003/api';
   const [previousLogos, setPreviousLogos] = useState<PreviousLogo[]>([
@@ -237,6 +240,43 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
       
       setUploadedLogo(logoUrl);
       setSelectedLogo(null);
+    }
+  };
+
+  const handleCreateVideo = async () => {
+    setIsCreatingVideo(true);
+    
+    try {
+      // Simulate video creation process
+      console.log('Creating video with:', {
+        photos: uploadedPhotos.length,
+        logo: uploadedLogo,
+        selectedLogo,
+        music: selectedMusic,
+        address: selectedAddress
+      });
+      
+      // Simulate API call to create video
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      setVideoCreated(true);
+      setUploadSuccess(true);
+      
+      // Show success message
+      setTimeout(() => {
+        setVideoCreated(false);
+        // Reset to first step after successful creation
+        setCurrentStep(0);
+        setUploadedPhotos([]);
+        setHasUploadedFiles(false);
+        setSelectedLogo(null);
+        setUploadedLogo(null);
+      }, 3000);
+      
+    } catch (error) {
+      console.error('Video creation failed:', error);
+    } finally {
+      setIsCreatingVideo(false);
     }
   };
 
@@ -1033,16 +1073,58 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
                 ← Back
               </button>
               <button
-                onClick={() => setCurrentStep(Math.min(currentStep + 1, steps.length - 1))}
+                onClick={() => {
+                  if (currentStep === steps.length - 1) {
+                    handleCreateVideo();
+                  } else {
+                    setCurrentStep(Math.min(currentStep + 1, steps.length - 1));
+                  }
+                }}
                 disabled={currentStep === 0 && !hasUploadedFiles && uploadedPhotos.length === 0}
-                className="px-6 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg hover:scale-105 transition-all text-sm ml-auto disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none"
+                className="px-6 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg hover:scale-105 transition-all text-sm ml-auto disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none flex items-center gap-2"
               >
-                {currentStep === steps.length - 1 ? 'Create Video' : 'Next →'}
+                {isCreatingVideo ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                    Creating Video...
+                  </>
+                ) : currentStep === steps.length - 1 ? 'Create Video' : 'Next →'}
               </button>
             </div>
           </motion.div>
         </div>
       </div>
+
+      {/* Video Creation Success Overlay */}
+      {videoCreated && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gradient-to-br from-amber-400 to-orange-400 p-1 rounded-2xl max-w-md mx-4">
+            <div className="bg-[#1a1410] rounded-2xl p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-orange-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-black" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">Video Created Successfully!</h3>
+              <p className="text-white/70 mb-6">
+                Your amazing video has been created and is ready to download.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setVideoCreated(false)}
+                  className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition-all"
+                >
+                  View Projects
+                </button>
+                <button
+                  onClick={() => setVideoCreated(false)}
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-lg hover:shadow-lg transition-all"
+                >
+                  Create Another
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

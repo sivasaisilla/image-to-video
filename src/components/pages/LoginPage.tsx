@@ -39,7 +39,15 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
         onLoginSuccess();
       } else {
         const errorData = await response.json();
-        setError(errorData.error || 'Login failed. Please check your credentials.');
+        
+        // Handle specific error for unregistered users
+        if (errorData.code === 'USER_NOT_FOUND') {
+          setError(
+            `${errorData.error}\n\nClick here to sign up`
+          );
+        } else {
+          setError(errorData.error || 'Login failed. Please check your credentials.');
+        }
       }
     } catch (err) {
       setError("Network error. Please try again.");
