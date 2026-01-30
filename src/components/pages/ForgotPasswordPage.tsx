@@ -1,20 +1,16 @@
 import { useState } from "react";
 import { Mail, ArrowLeft, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { authService } from "../../services/firebase";
 
-interface ForgotPasswordPageProps {
-  onBack: () => void;
-  onSwitchToLogin: () => void;
-}
-
-export function ForgotPasswordPage({ onBack, onSwitchToLogin }: ForgotPasswordPageProps) {
+export function ForgotPasswordPage() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isEmailSent, setIsEmailSent] = useState(false);
-
-  const API_BASE = 'http://localhost:3003/api';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,21 +19,15 @@ export function ForgotPasswordPage({ onBack, onSwitchToLogin }: ForgotPasswordPa
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
+      const result = await authService.resetPassword(email);
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (result.success) {
         setSuccess("Password reset instructions have been sent to your email.");
         setIsEmailSent(true);
       } else {
-        setError(data.error || "Failed to send reset instructions");
+        setError(result.error || "Failed to send reset instructions");
       }
-    } catch (error) {
+    } catch (err) {
       setError("Network error. Please try again.");
     } finally {
       setIsLoading(false);
@@ -75,14 +65,14 @@ export function ForgotPasswordPage({ onBack, onSwitchToLogin }: ForgotPasswordPa
               </div>
 
               <button
-                onClick={onSwitchToLogin}
+                onClick={() => navigate("/login")}
                 className="w-full py-3 bg-white text-black rounded-lg hover:bg-white/90 transition-all font-medium"
               >
                 Back to Login
               </button>
 
               <button
-                onClick={onBack}
+                onClick={() => navigate("/")}
                 className="w-full py-3 bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition-all text-sm"
               >
                 ← Back to Home
@@ -104,7 +94,7 @@ export function ForgotPasswordPage({ onBack, onSwitchToLogin }: ForgotPasswordPa
         >
           {/* Back Button */}
           <button
-            onClick={onBack}
+            onClick={() => navigate("/")}
             className="flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -173,7 +163,7 @@ export function ForgotPasswordPage({ onBack, onSwitchToLogin }: ForgotPasswordPa
             <div className="text-white/60 text-sm">
               Remember your password?{" "}
               <button
-                onClick={onSwitchToLogin}
+                onClick={() => navigate("/login")}
                 className="text-amber-400 hover:text-amber-300 transition-colors"
               >
                 Sign In

@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if request is for user's own folder
+    function isUserFolder(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ============ USER CONTENT ============
+    // Users can only access their own folder: users/{uid}/**
+    match /users/{userId}/{allPaths=**} {
+      // Users can read their own files
+      allow read: if isUserFolder(userId);
+
+      // Users can upload files to their own folder
+      // with size and type restrictions
+      allow create: if isUserFolder(userId)
+        && request.resource.size < 50 * 1024 * 1024 // 50MB max
+        && (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType.matches('video/.*')
+        );
+
+      // Users can update metadata of their own files
+      allow update: if isUserFolder(userId);
+
+      // Users can delete their own files
+      allow delete: if isUserFolder(userId);
+    }
+
+    // ============ CONTENT FOLDER (Legacy) ============
+    match /content/{userId}/{allPaths=**} {
+      allow read: if isUserFolder(userId);
+      allow create: if isUserFolder(userId)
+        && request.resource.size < 50 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType.matches('video/.*')
+        );
+      allow update: if isUserFolder(userId);
+      allow delete: if isUserFolder(userId);
+    }
+
+    // ============ PUBLIC ASSETS ============
+    // Music tracks, templates, etc. that are publicly readable
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false; // Only admins via Firebase Console
+    }
+
+    // ============ DENY ALL OTHER ACCESS ============
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

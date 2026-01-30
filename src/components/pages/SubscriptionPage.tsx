@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ArrowLeft, CreditCard, Crown, Check, Mail, MessageCircle, Infinity, Plus, FolderOpen, Image, User, ChevronDown, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { DashboardHeader } from "../layout/DashboardHeader";
+import { authService } from "../../services/firebase";
 
 interface SubscriptionPageProps {
   onClose: () => void;
@@ -15,6 +17,7 @@ interface SubscriptionPageProps {
 }
 
 export function SubscriptionPage({ onClose, onNavigateToCreate, onNavigateToProjects, onNavigateToImageEdit, onNavigateToProfile, onNavigateToSettings, onNavigateToReferral, onLogout }: SubscriptionPageProps) {
+  const navigate = useNavigate();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
@@ -23,9 +26,10 @@ export function SubscriptionPage({ onClose, onNavigateToCreate, onNavigateToProj
     setIsUserMenuOpen(false);
   };
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setShowLogoutDialog(false);
-    onLogout?.();
+    await authService.signOut();
+    navigate("/");
   };
 
   const plans = [

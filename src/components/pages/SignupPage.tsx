@@ -1,21 +1,17 @@
 import { motion } from "motion/react";
 import { Mail, Lock, ArrowLeft, Chrome, Apple, Loader2, AlertCircle, CheckCircle, User, Eye, EyeOff, Phone } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { authService } from "../../services/firebase";
 
-interface SignupPageProps {
-  onBack: () => void;
-  onSwitchToLogin: () => void;
-  onSignupSuccess: () => void;
-}
+type SignupStep = 'form' | 'success';
 
-type SignupStep = 'email' | 'otp' | 'password' | 'success';
-
-export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupPageProps) {
-  const [currentStep, setCurrentStep] = useState<SignupStep>('email');
+export function SignupPage() {
+  const navigate = useNavigate();
+  const [currentStep, setCurrentStep] = useState<SignupStep>('form');
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -24,126 +20,41 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const API_BASE = 'http://localhost:3003/api';
-
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-
-    try {
-      // Check if email already exists
-      const checkResponse = await fetch(`${API_BASE}/check-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-
-      const checkData = await checkResponse.json();
-
-      if (checkData.exists) {
-        setError(checkData.message);
-        setTimeout(() => {
-          onSwitchToLogin();
-        }, 2000);
-        return;
-      }
-
-      // Send OTP
-      const otpResponse = await fetch(`${API_BASE}/send-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-
-      const otpData = await otpResponse.json();
-
-      if (otpData.success) {
-        // Display the OTP in the success message for testing
-        const successMessage = otpData.otp 
-          ? `OTP sent to your email! For testing, your OTP is: ${otpData.otp}`
-          : "OTP sent to your email! Please check your inbox.";
-        setSuccess(successMessage);
-        setCurrentStep('otp');
-      } else {
-        setError(otpData.error || "Failed to send OTP");
-      }
-    } catch (err) {
-      setError("Network error. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleOTPSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch(`${API_BASE}/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setSuccess("Email verified! Now create your password.");
-        setCurrentStep('password');
-      } else {
-        setError(data.error || "Invalid OTP");
-      }
-    } catch (err) {
-      setError("Network error. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePasswordSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters long");
-      return;
-    }
+    setSuccess("");
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
       return;
     }
 
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/auth/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name: userName, phone: phoneNumber })
-      });
+      const result = await authService.signUp(email, password, userName);
 
-      const data = await response.json();
+      if (result.success && result.user) {
+        localStorage.setItem('user', JSON.stringify({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: userName,
+        }));
 
-      if (data.success) {
-        // Store token in localStorage
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        setSuccess("Account created! Please check your email to verify your account.");
         setCurrentStep('success');
+
         setTimeout(() => {
-          onSignupSuccess();
+          navigate("/dashboard");
         }, 2000);
       } else {
-        // Handle specific error for already registered email
-        if (data.code === 'EMAIL_ALREADY_IN_USE') {
-          setError(
-            `${data.error}\n\nTry signing in with this email or use a different email address.`
-          );
-        } else {
-          setError(data.error || "Signup failed");
-        }
+        setError(result.error || "Signup failed. Please try again.");
       }
     } catch (err) {
       setError("Network error. Please try again.");
@@ -152,7 +63,61 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
     }
   };
 
-  const renderEmailStep = () => (
+  const handleGoogleSignUp = async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const result = await authService.signInWithGoogle();
+
+      if (result.success && result.user) {
+        localStorage.setItem('user', JSON.stringify({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+        }));
+        setCurrentStep('success');
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 2000);
+      } else {
+        setError(result.error || "Google sign up failed.");
+      }
+    } catch (err) {
+      setError("Google sign up failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAppleSignUp = async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const result = await authService.signInWithApple();
+
+      if (result.success && result.user) {
+        localStorage.setItem('user', JSON.stringify({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+        }));
+        setCurrentStep('success');
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 2000);
+      } else {
+        setError(result.error || "Apple sign up failed.");
+      }
+    } catch (err) {
+      setError("Apple sign up failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderFormStep = () => (
     <motion.div
       initial={{ opacity: 0, x: 40 }}
       animate={{ opacity: 1, x: 0 }}
@@ -164,7 +129,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
           <p className="text-white/60">Start your journey with IMOB Motion</p>
         </div>
 
-        <form onSubmit={handleEmailSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-sm text-white/70 mb-2">Your Name</label>
             <div className="relative">
@@ -196,7 +161,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
           </div>
 
           <div>
-            <label className="block text-sm text-white/70 mb-2">Phone Number</label>
+            <label className="block text-sm text-white/70 mb-2">Phone Number (Optional)</label>
             <div className="relative">
               <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
               <input
@@ -205,127 +170,10 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 placeholder="+1 (555) 123-4567"
                 className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all"
-                required
               />
             </div>
           </div>
 
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-md">
-              <AlertCircle className="w-5 h-5 text-red-400" />
-              <span className="text-red-400 text-sm">{error}</span>
-            </div>
-          )}
-
-          {success && (
-            <div className="flex items-center gap-2 p-3 bg-green-500/20 border border-green-500/50 rounded-md">
-              <CheckCircle className="w-5 h-5 text-green-400" />
-              <span className="text-green-400 text-sm">{success}</span>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isLoading || !email || !userName || !phoneNumber}
-            className="w-full py-4 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-md hover:shadow-2xl hover:shadow-amber-400/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              'Continue'
-            )}
-          </button>
-        </form>
-
-        <div className="mt-8 text-center">
-          <span className="text-white/60">Already have an account? </span>
-          <button
-            onClick={onSwitchToLogin}
-            className="text-amber-400 hover:text-amber-300 transition-colors"
-          >
-            Sign In
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-
-  const renderOTPStep = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 40 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <div className="backdrop-blur-md bg-white/5 border border-white/20 rounded-md p-8 lg:p-12">
-        <div className="mb-8">
-          <h2 className="text-3xl mb-2">Verify Email</h2>
-          <p className="text-white/60">We sent a 6-digit code to {email}</p>
-        </div>
-
-        <form onSubmit={handleOTPSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm text-white/70 mb-2">Enter OTP</label>
-            <input
-              type="text"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:border-amber-400/50 focus:bg-white/10 transition-all text-center text-2xl tracking-widest"
-              maxLength={6}
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-md">
-              <AlertCircle className="w-5 h-5 text-red-400" />
-              <span className="text-red-400 text-sm">{error}</span>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isLoading || otp.length !== 6}
-            className="w-full py-4 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-md hover:shadow-2xl hover:shadow-amber-400/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Verifying...
-              </>
-            ) : (
-              'Verify OTP'
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentStep('email')}
-            className="w-full py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all"
-          >
-            Back to Email
-          </button>
-        </form>
-      </div>
-    </motion.div>
-  );
-
-  const renderPasswordStep = () => (
-    <motion.div
-      initial={{ opacity: 0, x: 40 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <div className="backdrop-blur-md bg-white/5 border border-white/20 rounded-md p-8 lg:p-12">
-        <div className="mb-8">
-          <h2 className="text-3xl mb-2">Create Password</h2>
-          <p className="text-white/60">Set a secure password for your account</p>
-        </div>
-
-        <form onSubmit={handlePasswordSubmit} className="space-y-6">
           <div>
             <label className="block text-sm text-white/70 mb-2">Password</label>
             <div className="relative">
@@ -371,15 +219,22 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-md">
-              <AlertCircle className="w-5 h-5 text-red-400" />
+            <div className="flex items-start gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-md">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
               <span className="text-red-400 text-sm">{error}</span>
+            </div>
+          )}
+
+          {success && (
+            <div className="flex items-center gap-2 p-3 bg-green-500/20 border border-green-500/50 rounded-md">
+              <CheckCircle className="w-5 h-5 text-green-400" />
+              <span className="text-green-400 text-sm">{success}</span>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={isLoading || !password || !confirmPassword}
+            disabled={isLoading || !email || !userName || !password || !confirmPassword}
             className="w-full py-4 bg-gradient-to-r from-amber-400 to-orange-400 text-black rounded-md hover:shadow-2xl hover:shadow-amber-400/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isLoading ? (
@@ -388,10 +243,50 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
                 Creating Account...
               </>
             ) : (
-              'Complete Signup'
+              'Create Account'
             )}
           </button>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-4 bg-transparent text-white/40">Or continue with</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              type="button"
+              onClick={handleGoogleSignUp}
+              disabled={isLoading}
+              className="flex items-center justify-center gap-3 py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all disabled:opacity-50"
+            >
+              <Chrome className="w-5 h-5" />
+              <span>Google</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleAppleSignUp}
+              disabled={isLoading}
+              className="flex items-center justify-center gap-3 py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all disabled:opacity-50"
+            >
+              <Apple className="w-5 h-5" />
+              <span>Apple</span>
+            </button>
+          </div>
         </form>
+
+        <div className="mt-8 text-center">
+          <span className="text-white/60">Already have an account? </span>
+          <button
+            onClick={() => navigate("/login")}
+            className="text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            Sign In
+          </button>
+        </div>
       </div>
     </motion.div>
   );
@@ -408,7 +303,8 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
           <CheckCircle className="w-10 h-10 text-green-400" />
         </div>
         <h2 className="text-3xl mb-4">Account Created!</h2>
-        <p className="text-white/60 mb-8">Welcome to IMOB Motion! Redirecting to your dashboard...</p>
+        <p className="text-white/60 mb-4">Welcome to IMOB Motion!</p>
+        <p className="text-white/40 text-sm mb-8">Please check your email to verify your account.</p>
         <div className="w-16 h-1 bg-gradient-to-r from-amber-400 to-orange-400 mx-auto rounded-full animate-pulse"></div>
       </div>
     </motion.div>
@@ -447,7 +343,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
       <motion.button
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
-        onClick={onBack}
+        onClick={() => navigate("/")}
         className="absolute top-8 left-8 z-10 flex items-center gap-2 px-6 py-3 backdrop-blur-md bg-white/10 border border-white/20 rounded-md hover:bg-white/20 transition-all"
       >
         <ArrowLeft className="w-5 h-5" />
@@ -455,7 +351,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
       </motion.button>
 
       {/* Main Content */}
-      <div className="relative z-10 h-full flex items-center justify-center px-6">
+      <div className="relative z-10 h-full flex items-center justify-center px-6 py-20 overflow-y-auto">
         <div className="w-full max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           {/* Left Side - Branding */}
           <motion.div
@@ -474,7 +370,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
                   </span>
                 </h1>
                 <p className="text-white/70 text-lg leading-relaxed">
-                  Create stunning real estate videos with AI. 
+                  Create stunning real estate videos with AI.
                   Start your free trial today and transform your listings.
                 </p>
               </div>
@@ -484,7 +380,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
                 {[
                   "AI-powered video generation",
                   "Professional templates",
-                  "Email verification security",
+                  "60 seconds free credits",
                   "No credit card required"
                 ].map((feature, index) => (
                   <motion.div
@@ -503,9 +399,7 @@ export function SignupPage({ onBack, onSwitchToLogin, onSignupSuccess }: SignupP
           </motion.div>
 
           {/* Right Side - Form */}
-          {currentStep === 'email' && renderEmailStep()}
-          {currentStep === 'otp' && renderOTPStep()}
-          {currentStep === 'password' && renderPasswordStep()}
+          {currentStep === 'form' && renderFormStep()}
           {currentStep === 'success' && renderSuccessStep()}
         </div>
       </div>

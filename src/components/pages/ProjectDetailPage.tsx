@@ -1,27 +1,41 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Trash2, Play, Volume2, Edit3, Wand2, Link2, Download, Copy } from "lucide-react";
 import { BasicEditorPage } from "../editors/BasicEditorPage";
 import { AdvancedEditorPage } from "../editors/AdvancedEditorPage";
+import { projectService, Project } from "../../services/firebase";
 
-interface ProjectDetailPageProps {
-  onBack: () => void;
-  onDelete?: () => void;
-  project: {
-    id: string;
-    title: string;
-    videoUrl?: string;
-    description?: string;
-    location?: string;
-    rating?: number;
-  };
-}
-
-export function ProjectDetailPage({ onBack, onDelete, project }: ProjectDetailPageProps) {
+export function ProjectDetailPage() {
+  const navigate = useNavigate();
+  const { projectId } = useParams<{ projectId: string }>();
   const [activeVersion, setActiveVersion] = useState<'mls' | 'client' | 'reel'>('mls');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [showBasicEditor, setShowBasicEditor] = useState(false);
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(false);
+  const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Fetch project data using projectId
+  useEffect(() => {
+    if (!projectId) {
+      setError("No project ID provided");
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = projectService.onProjectChange(projectId, (projectData) => {
+      if (projectData) {
+        setProject(projectData);
+      } else {
+        setError("Project not found");
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [projectId]);
 
   const handleCopyLink = () => {
     // Use fallback method since Clipboard API is blocked in this environment
@@ -47,12 +61,36 @@ export function ProjectDetailPage({ onBack, onDelete, project }: ProjectDetailPa
     }
   };
 
-  const handleDelete = () => {
-    if (onDelete) {
-      onDelete();
+  const handleDelete = async () => {
+    if (projectId) {
+      await projectService.delete(projectId);
     }
-    onBack();
+    navigate("/projects");
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-[#131519] z-[100] flex items-center justify-center text-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+      </div>
+    );
+  }
+
+  if (error || !project) {
+    return (
+      <div className="fixed inset-0 bg-[#131519] z-[100] flex items-center justify-center text-white">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">{error || "Project not found"}</p>
+          <button
+            onClick={() => navigate("/projects")}
+            className="px-4 py-2 bg-white text-black rounded-md hover:bg-white/90 transition-all"
+          >
+            Back to Projects
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-[#131519] z-[100] overflow-y-auto relative text-white">
@@ -67,19 +105,19 @@ export function ProjectDetailPage({ onBack, onDelete, project }: ProjectDetailPa
             {/* Left - Back Button & Title */}
             <div>
               <button
-                onClick={onBack}
+                onClick={() => navigate("/projects")}
                 className="flex items-center gap-2 px-4 py-2.5 backdrop-blur-md bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all mb-4"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span className="text-sm">Back to Projects</span>
               </button>
               <h1 className="text-3xl mb-2">{project.title}</h1>
-              {project.location && (
+              {project.address?.text && (
                 <div className="flex items-center gap-2 text-white/60">
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
                   </svg>
-                  <span className="text-sm">{project.location}</span>
+                  <span className="text-sm">{project.address.text}</span>
                 </div>
               )}
             </div>
@@ -98,8 +136,8 @@ export function ProjectDetailPage({ onBack, onDelete, project }: ProjectDetailPa
           <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-8">
             {/* Video Player */}
             <div className={`relative bg-black rounded-xl overflow-hidden mb-6 border ${
-              activeVersion === 'reel' 
-                ? 'border-pink-500/30 max-w-sm mx-auto aspect-[9/16]' 
+              activeVersion === 'reel'
+                ? 'border-pink-500/30 max-w-sm mx-auto aspect-[9/16]'
                 : 'border-white/10 aspect-video'
             }`}>
               {project.videoUrl ? (

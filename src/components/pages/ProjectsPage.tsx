@@ -1,148 +1,67 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Infinity, Plus, FolderOpen, Image, CreditCard, User, ChevronDown, Search, RefreshCw, Trash2, Home, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { AIImageEditorPage } from "../editors";
 import { SubscriptionPage, TopUpPage } from ".";
 import { DashboardHeader } from "../layout";
+import { authService, projectService, Project } from "../../services/firebase";
 
-interface ProjectsPageProps {
-  onLogout: () => void;
-  onNavigateToCreate: () => void;
-  onNavigateToProfile?: () => void;
-  onNavigateToSettings?: () => void;
-  onNavigateToPlans?: () => void;
-  onNavigateToReferral?: () => void;
-  onProjectSelect?: (project: Project) => void;
-}
-
-interface Project {
-  id: number;
-  title: string;
-  description: string;
-  content_type: 'video' | 'image';
-  file_url: string;
-  thumbnail_url: string;
-  file_size: number;
-  duration?: number;
-  format: string;
-  status: string;
-  created_at: string;
-  location_name?: string;
-  latitude?: number;
-  longitude?: number;
-}
-
-export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile, onNavigateToSettings, onNavigateToPlans, onNavigateToReferral, onProjectSelect }: ProjectsPageProps) {
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+export function ProjectsPage() {
+  const navigate = useNavigate();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [showSubscriptionPage, setShowSubscriptionPage] = useState(false);
   const [showTopUpPage, setShowTopUpPage] = useState(false);
-  
+
   // Real data states
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [stats, setStats] = useState(null);
 
-  const API_BASE = 'http://localhost:3003/api';
-
-  // Fetch user projects
-  const fetchProjects = async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('No authentication token found');
-        setLoading(false);
-        return;
-      }
-
-      // Extract user ID from mock token format
-      let userId;
-      if (token.startsWith('mock_firebase_token_')) {
-        const timestamp = token.replace('mock_firebase_token_', '');
-        userId = 'user_' + timestamp;
-      } else {
-        // Fallback: try to decode as JWT (for future compatibility)
-        try {
-          const tokenPayload = JSON.parse(atob(token.split('.')[1]));
-          userId = tokenPayload.userId;
-        } catch (e) {
-          setError('Invalid authentication token');
-          setLoading(false);
-          return;
-        }
-      }
-
-      const response = await fetch(`${API_BASE}/content/user/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch projects');
-      }
-
-      const data = await response.json();
-      setProjects(data.content || []);
-      setStats(data.stats || null);
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-      setError('Failed to load projects');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Fetch user projects using Firebase SDK
   useEffect(() => {
-    fetchProjects();
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) {
+      setError('No authenticated user found');
+      setLoading(false);
+      return;
+    }
+
+    // Set up realtime listener for projects
+    const unsubscribe = projectService.onUserProjectsChange(currentUser.uid, (projectsList) => {
+      setProjects(projectsList);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const handleDeleteProject = async (id: number) => {
+  const handleDeleteProject = async (id: string) => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('No authentication token found');
-        return;
+      const result = await projectService.delete(id);
+      if (!result.success) {
+        setError(result.error || 'Failed to delete project');
       }
-
-      const response = await fetch(`${API_BASE}/content/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete project');
-      }
-
-      await fetchProjects(); // Refresh projects
       setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Error deleting project:', error);
+    } catch (err) {
+      console.error('Error deleting project:', err);
       setError('Failed to delete project');
     }
   };
 
   const handleLogoutClick = () => {
     setShowLogoutDialog(true);
-    setIsUserMenuOpen(false);
   };
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setShowLogoutDialog(false);
-    onLogout();
+    await authService.signOut();
+    navigate("/");
   };
 
   // Filter projects based on active filters
@@ -150,24 +69,24 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
     // Tab filter
     let tabMatch = true;
     if (activeFilter === 'In Progress') {
-      tabMatch = project.status === 'in-progress';
+      tabMatch = project.status === 'draft' || project.status === 'generating';
     } else if (activeFilter === 'Generating Clips') {
       tabMatch = project.status === 'generating';
-    } else if (activeFilter === 'Unpaid') {
-      tabMatch = project.status === 'unpaid';
     } else if (activeFilter === 'Completed') {
       tabMatch = project.status === 'completed';
+    } else if (activeFilter === 'Failed') {
+      tabMatch = project.status === 'failed';
     }
 
     // Status dropdown filter
     let statusMatch = true;
     if (statusFilter !== 'All Status') {
       if (statusFilter === 'In Progress') {
-        statusMatch = project.status === 'in-progress';
+        statusMatch = project.status === 'draft' || project.status === 'generating';
       } else if (statusFilter === 'Completed') {
         statusMatch = project.status === 'completed';
-      } else if (statusFilter === 'Unpaid') {
-        statusMatch = project.status === 'unpaid';
+      } else if (statusFilter === 'Failed') {
+        statusMatch = project.status === 'failed';
       } else if (statusFilter === 'Generating') {
         statusMatch = project.status === 'generating';
       }
@@ -177,10 +96,9 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
     let searchMatch = true;
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      searchMatch = 
+      searchMatch =
         project.title.toLowerCase().includes(query) ||
-        project.location_name?.toLowerCase().includes(query) ||
-        project.description?.toLowerCase().includes(query) || false;
+        project.address?.text?.toLowerCase().includes(query) || false;
     }
 
     return tabMatch && statusMatch && searchMatch;
@@ -189,10 +107,10 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
   // Calculate counts for tabs
   const getTabCount = (filterName: string) => {
     if (filterName === 'All') return projects.length;
-    if (filterName === 'In Progress') return projects.filter(p => p.status === 'in-progress').length;
+    if (filterName === 'In Progress') return projects.filter(p => p.status === 'draft' || p.status === 'generating').length;
     if (filterName === 'Generating Clips') return projects.filter(p => p.status === 'generating').length;
-    if (filterName === 'Unpaid') return projects.filter(p => p.status === 'unpaid').length;
     if (filterName === 'Completed') return projects.filter(p => p.status === 'completed').length;
+    if (filterName === 'Failed') return projects.filter(p => p.status === 'failed').length;
     return 0;
   };
 
@@ -200,8 +118,8 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
     { name: 'All', count: getTabCount('All') },
     { name: 'In Progress', count: getTabCount('In Progress') },
     { name: 'Generating Clips', count: getTabCount('Generating Clips') },
-    { name: 'Unpaid', count: getTabCount('Unpaid') },
     { name: 'Completed', count: getTabCount('Completed') },
+    { name: 'Failed', count: getTabCount('Failed') },
   ];
 
   return (
@@ -213,13 +131,13 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
       {/* Header */}
       <header className="sticky top-0 px-8 py-4 z-50">
         <DashboardHeader
-          onLogout={onLogout}
-          onNavigateToCreate={onNavigateToCreate}
+          onLogout={handleLogoutClick}
+          onNavigateToCreate={() => navigate("/dashboard")}
           onNavigateToProjects={() => {}}
-          onNavigateToProfile={onNavigateToProfile}
-          onNavigateToSettings={onNavigateToSettings}
-          onNavigateToPlans={onNavigateToPlans}
-          onNavigateToReferral={onNavigateToReferral}
+          onNavigateToProfile={() => navigate("/profile")}
+          onNavigateToSettings={() => navigate("/settings")}
+          onNavigateToPlans={() => navigate("/plans")}
+          onNavigateToReferral={() => navigate("/referral")}
           activePage="projects"
         />
       </header>
@@ -323,7 +241,7 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
                 Upload your first image or video to get started
               </p>
               <button
-                onClick={onNavigateToCreate}
+                onClick={() => navigate("/dashboard")}
                 className="px-4 py-2 bg-white text-black rounded-md hover:bg-white/90 transition-all text-sm"
               >
                 Create First Project
@@ -340,20 +258,12 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
               >
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-white/5 flex items-center justify-center">
-                  {project.thumbnail_url ? (
-                    <img
-                      src={project.thumbnail_url}
-                      alt={project.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
-                        <Home className="w-6 h-6 text-white/40" />
-                      </div>
-                      <p className="text-xs text-white/60">No thumbnail</p>
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
+                      <Home className="w-6 h-6 text-white/40" />
                     </div>
-                  )}
+                    <p className="text-xs text-white/60">{project.address?.text || 'No address'}</p>
+                  </div>
                 </div>
 
                 {/* Card Content */}
@@ -365,13 +275,19 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
                         className={`px-2 py-0.5 rounded text-xs ${
                           project.status === 'completed'
                             ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                            : project.status === 'failed'
+                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            : project.status === 'generating'
+                            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                             : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                         }`}
                       >
-                        {project.status === 'completed' ? 'Completed' : 'In progress'}
+                        {project.status === 'completed' ? 'Completed' :
+                         project.status === 'failed' ? 'Failed' :
+                         project.status === 'generating' ? 'Generating' : 'Draft'}
                       </span>
-                      <button 
-                        onClick={() => setDeleteConfirm(project.id)}
+                      <button
+                        onClick={() => setDeleteConfirm(project.id || null)}
                         className="p-1 hover:bg-red-500/20 rounded transition-all group"
                       >
                         <Trash2 className="w-3.5 h-3.5 text-white/40 group-hover:text-red-400" />
@@ -379,16 +295,16 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
                     </div>
                   </div>
 
-                  <p className="text-xs text-white/60 mb-3">{new Date(project.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-white/60 mb-3">
+                    {project.createdAt ? project.createdAt.toDate().toLocaleDateString() : 'Unknown date'}
+                  </p>
 
                   {project.status === 'completed' && (
-                    <button 
-                      onClick={() => {
-                        if (onProjectSelect) onProjectSelect(project);
-                      }}
+                    <button
+                      onClick={() => navigate(`/projects/${project.id}`)}
                       className="w-full py-2.5 bg-white border border-white/40 hover:bg-white/90 transition-all text-black rounded-lg text-sm"
                     >
-                      👁 View Details
+                      View Details
                     </button>
                   )}
                 </div>
@@ -426,29 +342,29 @@ export function ProjectsPage({ onLogout, onNavigateToCreate, onNavigateToProfile
 
       {/* AI Image Editor Page */}
       {showImageEditor && (
-        <AIImageEditorPage 
+        <AIImageEditorPage
           onClose={() => setShowImageEditor(false)}
-          onNavigateToCreate={onNavigateToCreate}
+          onNavigateToCreate={() => navigate("/dashboard")}
           onNavigateToProjects={() => setShowImageEditor(false)}
           onNavigateToSubscription={() => {
             setShowImageEditor(false);
             setShowSubscriptionPage(true);
           }}
-          onLogout={onLogout}
+          onLogout={handleLogoutClick}
         />
       )}
 
       {/* Subscription Page */}
       {showSubscriptionPage && (
-        <SubscriptionPage 
+        <SubscriptionPage
           onClose={() => setShowSubscriptionPage(false)}
-          onNavigateToCreate={onNavigateToCreate}
+          onNavigateToCreate={() => navigate("/dashboard")}
           onNavigateToProjects={() => setShowSubscriptionPage(false)}
           onNavigateToImageEdit={() => {
             setShowSubscriptionPage(false);
             setShowImageEditor(true);
           }}
-          onLogout={onLogout}
+          onLogout={handleLogoutClick}
         />
       )}
 

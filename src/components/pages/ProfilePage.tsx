@@ -1,129 +1,65 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { User, Mail, Calendar, Package, Video, Image as ImageIcon, ArrowLeft, Camera, ChevronDown, LogOut } from "lucide-react";
 import { motion } from "motion/react";
 import { DashboardHeader } from "../layout/DashboardHeader";
+import { authService, userService, UserData } from "../../services/firebase";
 
-interface ProfilePageProps {
-  onBack: () => void;
-  onNavigateToCreate?: () => void;
-  onNavigateToProjects?: () => void;
-  onNavigateToSettings?: () => void;
-  onNavigateToPlans?: () => void;
-  onNavigateToReferral?: () => void;
-  onLogout: () => void;
-}
-
-interface UserProfile {
-  id: string;
-  email: string;
-  fullName: string;
-  phone: string;
-  company: string;
-  bio: string;
-  profileImageUrl: string;
-  subscriptionPlan: string;
-  createdAt: string;
-  stats: {
-    videosCreated: number;
-    photosUploaded: number;
-    totalVideoDuration: number;
-    lastVideoCreated?: string;
-    memberSince: string;
-  };
-}
-
-export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, onNavigateToSettings, onNavigateToPlans, onNavigateToReferral, onLogout }: ProfilePageProps) {
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+export function ProfilePage() {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [profileData, setProfileData] = useState<UserProfile>({
-    id: "",
-    email: "",
-    fullName: "",
-    phone: "",
-    company: "",
-    bio: "",
-    profileImageUrl: "",
-    subscriptionPlan: "free",
-    createdAt: "",
-    stats: {
-      videosCreated: 0,
-      photosUploaded: 0,
-      totalVideoDuration: 0,
-      memberSince: ""
-    }
+  const [profileData, setProfileData] = useState<UserData | null>(null);
+  const [editForm, setEditForm] = useState({
+    displayName: "",
   });
 
-  // API base URL
-  const API_BASE = 'http://localhost:3003/api';
-
-  // Fetch user profile
+  // Fetch user profile using Firebase SDK
   useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setError('No authentication token found');
-          setLoading(false);
-          return;
-        }
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) {
+      setError('No authenticated user found');
+      setLoading(false);
+      return;
+    }
 
-        const response = await fetch(`${API_BASE}/user/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch profile');
-        }
-
-        const data = await response.json();
+    // Set up realtime listener for profile changes
+    const unsubscribe = userService.onProfileChange(currentUser.uid, (data) => {
+      if (data) {
         setProfileData(data);
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-        setError('Failed to load profile data');
-      } finally {
-        setLoading(false);
+        setEditForm({
+          displayName: data.displayName || "",
+        });
+      } else {
+        setError('Profile not found');
       }
-    };
+      setLoading(false);
+    });
 
-    fetchProfile();
+    return () => unsubscribe();
   }, []);
 
   const handleSave = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('No authentication token found');
-        return;
-      }
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || !profileData) {
+      setError('No authenticated user found');
+      return;
+    }
 
-      const response = await fetch(`${API_BASE}/user/profile`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          fullName: profileData.fullName,
-          phone: profileData.phone,
-          company: profileData.company,
-          bio: profileData.bio
-        })
+    try {
+      const result = await userService.updateProfile(currentUser.uid, {
+        displayName: editForm.displayName,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to update profile');
+      if (result.success) {
+        setIsEditing(false);
+      } else {
+        setError(result.error || 'Failed to update profile');
       }
-
-      setIsEditing(false);
-      // Show success message (you could add a toast notification here)
-    } catch (error) {
-      console.error('Error updating profile:', error);
+    } catch (err) {
+      console.error('Error updating profile:', err);
       setError('Failed to update profile');
     }
   };
@@ -133,9 +69,10 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
     setIsUserMenuOpen(false);
   };
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setShowLogoutDialog(false);
-    onLogout();
+    await authService.signOut();
+    navigate("/");
   };
 
   return loading ? (
@@ -191,12 +128,12 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
       {/* Header */}
       <header className="sticky top-0 z-50 px-8 py-4">
         <DashboardHeader
-          onNavigateToCreate={onNavigateToCreate}
-          onNavigateToProjects={onNavigateToProjects}
+          onNavigateToCreate={() => navigate("/dashboard")}
+          onNavigateToProjects={() => navigate("/projects")}
           onNavigateToProfile={() => {}}
-          onNavigateToSettings={onNavigateToSettings}
-          onNavigateToPlans={onNavigateToPlans}
-          onNavigateToReferral={onNavigateToReferral}
+          onNavigateToSettings={() => navigate("/settings")}
+          onNavigateToPlans={() => navigate("/plans")}
+          onNavigateToReferral={() => navigate("/referral")}
           onLogout={handleLogoutClick}
         />
       </header>
@@ -225,8 +162,8 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
               <div className="flex-1">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h1 className="text-3xl mb-2">{profileData.fullName || 'User'}</h1>
-                    <p className="text-white/60">{profileData.email}</p>
+                    <h1 className="text-3xl mb-2">{profileData?.displayName || 'User'}</h1>
+                    <p className="text-white/60">{profileData?.email}</p>
                   </div>
                   <button
                     onClick={() => setIsEditing(!isEditing)}
@@ -239,15 +176,15 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-6 mt-6">
                   <div className="text-center">
-                    <div className="text-2xl mb-1">{profileData.stats.videosCreated}</div>
+                    <div className="text-2xl mb-1">{profileData?.stats.videosCreated || 0}</div>
                     <div className="text-sm text-white/60">Videos Created</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl mb-1">{profileData.stats.photosUploaded}</div>
+                    <div className="text-2xl mb-1">{profileData?.stats.photosUploaded || 0}</div>
                     <div className="text-sm text-white/60">Photos Uploaded</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl mb-1">{Math.floor(profileData.stats.totalVideoDuration / 60)}:{(profileData.stats.totalVideoDuration % 60).toString().padStart(2, '0')}</div>
+                    <div className="text-2xl mb-1">{Math.floor((profileData?.stats.totalVideoSeconds || 0) / 60)}:{((profileData?.stats.totalVideoSeconds || 0) % 60).toString().padStart(2, '0')}</div>
                     <div className="text-sm text-white/60">Total Duration</div>
                   </div>
                 </div>
@@ -269,69 +206,18 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
                   {isEditing ? (
                     <input
                       type="text"
-                      value={profileData.fullName}
-                      onChange={(e) => setProfileData({ ...profileData, fullName: e.target.value })}
+                      value={editForm.displayName}
+                      onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })}
                       className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:border-white/40 transition-all"
                     />
                   ) : (
-                    <div className="text-white">{profileData.fullName}</div>
+                    <div className="text-white">{profileData?.displayName || 'Not set'}</div>
                   )}
                 </div>
 
                 <div>
                   <label className="block text-sm text-white/60 mb-2">Email Address</label>
-                  {isEditing ? (
-                    <input
-                      type="email"
-                      value={profileData.email}
-                      onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:border-white/40 transition-all"
-                    />
-                  ) : (
-                    <div className="text-white">{profileData.email}</div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm text-white/60 mb-2">Phone Number</label>
-                  {isEditing ? (
-                    <input
-                      type="tel"
-                      value={profileData.phone}
-                      onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:border-white/40 transition-all"
-                    />
-                  ) : (
-                    <div className="text-white">{profileData.phone}</div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm text-white/60 mb-2">Company</label>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={profileData.company}
-                      onChange={(e) => setProfileData({ ...profileData, company: e.target.value })}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:border-white/40 transition-all"
-                    />
-                  ) : (
-                    <div className="text-white">{profileData.company}</div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm text-white/60 mb-2">Bio</label>
-                  {isEditing ? (
-                    <textarea
-                      value={profileData.bio}
-                      onChange={(e) => setProfileData({ ...profileData, bio: e.target.value })}
-                      rows={3}
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-md focus:outline-none focus:border-white/40 transition-all resize-none"
-                    />
-                  ) : (
-                    <div className="text-white">{profileData.bio}</div>
-                  )}
+                  <div className="text-white">{profileData?.email}</div>
                 </div>
 
                 {isEditing && (
@@ -357,11 +243,11 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-white mb-1">Professional Plan</div>
-                      <div className="text-sm text-white/60">60 seconds video</div>
+                      <div className="text-white mb-1 capitalize">{profileData?.subscription.planId || 'Free'} Plan</div>
+                      <div className="text-sm text-white/60">{profileData?.credits.availableSeconds || 0} seconds available</div>
                     </div>
                     <div className="px-4 py-2 bg-white/10 rounded-md">
-                      €15.90/video
+                      {profileData?.credits.usedSeconds || 0}s used
                     </div>
                   </div>
 
@@ -369,24 +255,17 @@ export function ProfilePage({ onBack, onNavigateToCreate, onNavigateToProjects, 
                     <div className="flex items-center justify-between text-sm mb-2">
                       <span className="text-white/60">Member Since</span>
                       <span className="text-white">
-                        {profileData.createdAt ? new Date(profileData.createdAt).toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: 'long', 
-                          day: 'numeric' 
+                        {profileData?.createdAt ? profileData.createdAt.toDate().toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
                         }) : 'Unknown'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-white/60">Last Video</span>
+                      <span className="text-white/60">Videos Created</span>
                       <span className="text-white">
-                        {profileData.stats.lastVideoCreated 
-                          ? new Date(profileData.stats.lastVideoCreated).toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric',
-                              year: new Date(profileData.stats.lastVideoCreated).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
-                            })
-                          : 'No videos yet'
-                        }
+                        {profileData?.stats.videosCreated || 0}
                       </span>
                     </div>
                   </div>

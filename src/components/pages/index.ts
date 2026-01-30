@@ -10,3 +10,4 @@ export { ProjectDetailPage } from './ProjectDetailPage';
 export { ReferralPage } from './ReferralPage';
 export { TopUpPage } from './TopUpPage';
 export { ForgotPasswordPage } from './ForgotPasswordPage';
+export { LandingPage } from './LandingPage';

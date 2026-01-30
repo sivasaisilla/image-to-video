@@ -1,36 +1,16 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { User, Mail, Lock, Bell, Video, Globe, Shield, Trash2, ArrowLeft, ChevronDown, LogOut, Save, Check, CreditCard, Download, FileText, Smartphone, Monitor, Moon, Sun } from "lucide-react";
 import { motion } from "motion/react";
 import { DashboardHeader } from "../layout/DashboardHeader";
+import { authService } from "../../services/firebase";
 
-interface SettingsPageProps {
-  onBack: () => void;
-  onNavigateToCreate?: () => void;
-  onNavigateToProjects?: () => void;
-  onNavigateToProfile?: () => void;
-  onNavigateToPlans?: () => void;
-  onNavigateToReferral?: () => void;
-  onLogout: () => void;
-}
-
-interface UserProfile {
-  id: string;
-  email: string;
-  fullName: string;
-  phone: string;
-  company: string;
-  bio: string;
-  profileImageUrl: string;
-  subscriptionPlan: string;
-  createdAt: string;
-}
-
-export function SettingsPage({ onBack, onNavigateToCreate, onNavigateToProjects, onNavigateToProfile, onNavigateToPlans, onNavigateToReferral, onLogout }: SettingsPageProps) {
+export function SettingsPage() {
+  const navigate = useNavigate();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<'account' | 'notifications' | 'video' | 'privacy'>('account');
-  const [profileData, setProfileData] = useState<UserProfile | null>(null);
 
   // Settings State
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -41,42 +21,15 @@ export function SettingsPage({ onBack, onNavigateToCreate, onNavigateToProjects,
   const [language, setLanguage] = useState('en');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
-  const API_BASE = 'http://localhost:3003/api';
-
-  // Fetch user profile
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-
-        const response = await fetch(`${API_BASE}/user/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setProfileData(data);
-        }
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-      }
-    };
-
-    fetchProfile();
-  }, []);
-
   const handleLogoutClick = () => {
     setShowLogoutDialog(true);
     setIsUserMenuOpen(false);
   };
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setShowLogoutDialog(false);
-    onLogout();
+    await authService.signOut();
+    navigate("/");
   };
 
   const tabs = [
@@ -170,12 +123,12 @@ export function SettingsPage({ onBack, onNavigateToCreate, onNavigateToProjects,
       {/* Header */}
       <header className="sticky top-0 z-50 px-8 py-4">
         <DashboardHeader
-          onNavigateToCreate={onNavigateToCreate}
-          onNavigateToProjects={onNavigateToProjects}
-          onNavigateToProfile={onNavigateToProfile}
+          onNavigateToCreate={() => navigate("/dashboard")}
+          onNavigateToProjects={() => navigate("/projects")}
+          onNavigateToProfile={() => navigate("/profile")}
           onNavigateToSettings={() => {}}
-          onNavigateToPlans={onNavigateToPlans}
-          onNavigateToReferral={onNavigateToReferral}
+          onNavigateToPlans={() => navigate("/plans")}
+          onNavigateToReferral={() => navigate("/referral")}
           onLogout={handleLogoutClick}
         />
       </header>
@@ -232,8 +185,8 @@ export function SettingsPage({ onBack, onNavigateToCreate, onNavigateToProjects,
                       <User className="w-10 h-10" />
                     </div>
                     <div>
-                      <h2 className="text-2xl mb-1">{profileData?.fullName || 'User'}</h2>
-                      <p className="text-white/60">{profileData?.email || 'user@example.com'}</p>
+                      <h2 className="text-2xl mb-1">User</h2>
+                      <p className="text-white/60">user@example.com</p>
                     </div>
                   </div>
 

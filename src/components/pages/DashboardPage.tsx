@@ -1,23 +1,17 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Infinity, Plus, FolderOpen, Image, CreditCard, Upload, Music, MapPin, CheckCircle2, User, ChevronDown, X, Link2, Download, LogOut, GripVertical, Gift } from "lucide-react";
 import { motion } from "motion/react";
 import { InteractiveMap } from "../common";
 import { DashboardHeader } from "../layout";
-
-interface DashboardPageProps {
-  onLogout: () => void;
-  onNavigateToProjects?: () => void;
-  onNavigateToProfile?: () => void;
-  onNavigateToSettings?: () => void;
-  onNavigateToPlans?: () => void;
-  onNavigateToReferral?: () => void;
-}
+import { authService, storageService, projectService, cloudFunctions } from "../../services/firebase";
 
 interface UploadedPhoto {
   id: string;
   name: string;
   size: string;
   url: string;
+  storagePath?: string;
 }
 
 interface PreviousLogo {
@@ -26,10 +20,10 @@ interface PreviousLogo {
   uploadedAt: string;
 }
 
-export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProfile, onNavigateToSettings, onNavigateToPlans, onNavigateToReferral }: DashboardPageProps) {
+export function DashboardPage() {
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [dragActive, setDragActive] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [uploadedPhotos, setUploadedPhotos] = useState<UploadedPhoto[]>([]);
   const [hasUploadedFiles, setHasUploadedFiles] = useState(false);
@@ -40,8 +34,8 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
   const [videoCreated, setVideoCreated] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-  
-  const API_BASE = 'http://localhost:3003/api';
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+
   const [previousLogos, setPreviousLogos] = useState<PreviousLogo[]>([
     {
       id: 'logo-1',
@@ -111,48 +105,46 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
   const handleFiles = async (files: File[]) => {
     setIsUploading(true);
     setUploadSuccess(false);
-    
+
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) {
         alert('Please login to upload files');
         setIsUploading(false);
         return;
       }
 
-      // Upload each file to the backend
+      // Create project if not exists
+      if (!currentProjectId) {
+        const projectResult = await projectService.create(currentUser.uid, `Project ${new Date().toLocaleDateString()}`);
+        if (!projectResult.success || !projectResult.projectId) {
+          throw new Error('Failed to create project');
+        }
+        setCurrentProjectId(projectResult.projectId);
+      }
+
+      const projectId = currentProjectId || 'temp';
+      const newPhotos: UploadedPhoto[] = [];
+
+      // Upload each file to Firebase Storage
       for (const file of files) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('title', file.name);
-        formData.append('description', `Uploaded from dashboard - ${new Date().toLocaleDateString()}`);
+        const result = await storageService.uploadProjectPhoto(currentUser.uid, projectId, file);
 
-        const response = await fetch(`${API_BASE}/content/upload`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to upload ${file.name}`);
+        if (result.success && result.url) {
+          newPhotos.push({
+            id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name,
+            size: formatFileSize(file.size),
+            url: result.url,
+            storagePath: result.storagePath,
+          });
         }
       }
 
-      // Show success message
+      setUploadedPhotos([...uploadedPhotos, ...newPhotos]);
       setUploadSuccess(true);
-      setHasUploadedFiles(true); // Mark that files have been uploaded
+      setHasUploadedFiles(true);
       setTimeout(() => setUploadSuccess(false), 3000);
-      
-      // Clear local uploaded photos since they're now on the server
-      setUploadedPhotos([]);
-      
-      // Don't redirect to projects - let user continue workflow
-      // setTimeout(() => {
-      //   onNavigateToProjects?.();
-      // }, 1500);
-      
     } catch (error) {
       console.error('Upload error:', error);
       alert('Failed to upload files. Please try again.');
@@ -245,36 +237,52 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
 
   const handleCreateVideo = async () => {
     setIsCreatingVideo(true);
-    
+
     try {
-      // Simulate video creation process
-      console.log('Creating video with:', {
-        photos: uploadedPhotos.length,
-        logo: uploadedLogo,
-        selectedLogo,
-        music: selectedMusic,
-        address: selectedAddress
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) {
+        alert('Please login to create video');
+        setIsCreatingVideo(false);
+        return;
+      }
+
+      if (!currentProjectId) {
+        alert('Please upload photos first');
+        setIsCreatingVideo(false);
+        return;
+      }
+
+      // Get photo URLs for video generation
+      const photoUrls = uploadedPhotos.map(p => p.url);
+
+      // Call Cloud Function to create video job
+      const result = await cloudFunctions.createVideoJob(currentProjectId, photoUrls, {
+        duration: currentVideoSeconds,
+        aspectRatio: '16:9',
+        prompt: `Professional real estate video showcasing property at ${addressQuery || 'the location'}`,
       });
-      
-      // Simulate API call to create video
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      setVideoCreated(true);
-      setUploadSuccess(true);
-      
-      // Show success message
-      setTimeout(() => {
-        setVideoCreated(false);
-        // Reset to first step after successful creation
-        setCurrentStep(0);
-        setUploadedPhotos([]);
-        setHasUploadedFiles(false);
-        setSelectedLogo(null);
-        setUploadedLogo(null);
-      }, 3000);
-      
+
+      if (result.success) {
+        setVideoCreated(true);
+        setUploadSuccess(true);
+
+        // Show success message
+        setTimeout(() => {
+          setVideoCreated(false);
+          // Reset to first step after successful creation
+          setCurrentStep(0);
+          setUploadedPhotos([]);
+          setHasUploadedFiles(false);
+          setSelectedLogo(null);
+          setUploadedLogo(null);
+          setCurrentProjectId(null);
+        }, 3000);
+      } else {
+        throw new Error(result.error || 'Failed to create video');
+      }
     } catch (error) {
       console.error('Video creation failed:', error);
+      alert('Failed to create video. Please try again.');
     } finally {
       setIsCreatingVideo(false);
     }
@@ -339,12 +347,12 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
 
   const handleLogoutClick = () => {
     setShowLogoutDialog(true);
-    setIsUserMenuOpen(false);
   };
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setShowLogoutDialog(false);
-    onLogout();
+    await authService.signOut();
+    navigate("/");
   };
 
   return (
@@ -392,11 +400,11 @@ export function DashboardPage({ onLogout, onNavigateToProjects, onNavigateToProf
       {/* Header */}
       <header className="sticky top-0 px-8 py-4 z-50">
         <DashboardHeader
-          onNavigateToProjects={onNavigateToProjects}
-          onNavigateToProfile={onNavigateToProfile}
-          onNavigateToSettings={onNavigateToSettings}
-          onNavigateToPlans={onNavigateToPlans}
-          onNavigateToReferral={onNavigateToReferral}
+          onNavigateToProjects={() => navigate("/projects")}
+          onNavigateToProfile={() => navigate("/profile")}
+          onNavigateToSettings={() => navigate("/settings")}
+          onNavigateToPlans={() => navigate("/plans")}
+          onNavigateToReferral={() => navigate("/referral")}
           onLogout={handleLogoutClick}
           activePage="create"
         />

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Gift, Copy, Check, Users, CreditCard, Award, Clock, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
 import { DashboardHeader } from "../layout/DashboardHeader";
@@ -30,6 +31,7 @@ export function ReferralPage({
   onNavigateToPlans,
   onLogout,
 }: ReferralPageProps) {
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'program' | 'history'>('program');
   

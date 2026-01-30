@@ -1,22 +1,16 @@
 import { motion } from "motion/react";
 import { Mail, Lock, ArrowLeft, Chrome, Apple, Loader2, AlertCircle } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { authService } from "../../services/firebase";
 
-interface LoginPageProps {
-  onBack: () => void;
-  onSwitchToRegister: () => void;
-  onSwitchToForgotPassword: () => void;
-  onLoginSuccess: () => void;
-}
-
-export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword, onLoginSuccess }: LoginPageProps) {
+export function LoginPage() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-
-  const API_BASE = 'http://localhost:3003/api';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,37 +18,69 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/auth/signin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
+      const result = await authService.signIn(email, password);
 
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Store token and user info
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        onLoginSuccess();
+      if (result.success && result.user) {
+        // Store user info in localStorage for quick access
+        localStorage.setItem('user', JSON.stringify({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+        }));
+        navigate("/dashboard");
       } else {
-        const errorData = await response.json();
-        
-        // Handle specific error for unregistered users
-        if (errorData.code === 'USER_NOT_FOUND') {
-          setError(
-            `${errorData.error}\n\nClick here to sign up`
-          );
-        } else if (errorData.code === 'WRONG_PASSWORD') {
-          setError(
-            `${errorData.error}\n\nPlease check your password and try again.`
-          );
-        } else {
-          setError(errorData.error || 'Login failed. Please check your credentials.');
-        }
+        setError(result.error || "Login failed. Please check your credentials.");
       }
     } catch (err) {
       setError("Network error. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const result = await authService.signInWithGoogle();
+
+      if (result.success && result.user) {
+        localStorage.setItem('user', JSON.stringify({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+        }));
+        navigate("/dashboard");
+      } else {
+        setError(result.error || "Google sign in failed.");
+      }
+    } catch (err) {
+      setError("Google sign in failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const result = await authService.signInWithApple();
+
+      if (result.success && result.user) {
+        localStorage.setItem('user', JSON.stringify({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+        }));
+        navigate("/dashboard");
+      } else {
+        setError(result.error || "Apple sign in failed.");
+      }
+    } catch (err) {
+      setError("Apple sign in failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -93,7 +119,7 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
       <motion.button
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
-        onClick={onBack}
+        onClick={() => navigate("/")}
         className="absolute top-8 left-8 z-10 flex items-center gap-2 px-6 py-3 backdrop-blur-md bg-white/10 border border-white/20 rounded-md hover:bg-white/20 transition-all"
       >
         <ArrowLeft className="w-5 h-5" />
@@ -207,7 +233,7 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
                   </label>
                   <button
                     type="button"
-                    onClick={onSwitchToForgotPassword}
+                    onClick={() => navigate("/forgot-password")}
                     className="text-sm text-amber-400 hover:text-amber-300 transition-colors"
                   >
                     Forgot Password?
@@ -216,8 +242,8 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
 
                 {/* Error Display */}
                 {error && (
-                  <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-md">
-                    <AlertCircle className="w-5 h-5 text-red-400" />
+                  <div className="flex items-start gap-2 p-3 bg-red-500/20 border border-red-500/50 rounded-md">
+                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
                     <span className="text-red-400 text-sm">{error}</span>
                   </div>
                 )}
@@ -252,14 +278,18 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
-                    className="flex items-center justify-center gap-3 py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all"
+                    onClick={handleGoogleSignIn}
+                    disabled={isLoading}
+                    className="flex items-center justify-center gap-3 py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all disabled:opacity-50"
                   >
                     <Chrome className="w-5 h-5" />
                     <span>Google</span>
                   </button>
                   <button
                     type="button"
-                    className="flex items-center justify-center gap-3 py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all"
+                    onClick={handleAppleSignIn}
+                    disabled={isLoading}
+                    className="flex items-center justify-center gap-3 py-3 backdrop-blur-md bg-white/5 border border-white/20 rounded-md hover:bg-white/10 transition-all disabled:opacity-50"
                   >
                     <Apple className="w-5 h-5" />
                     <span>Apple</span>
@@ -271,7 +301,7 @@ export function LoginPage({ onBack, onSwitchToRegister, onSwitchToForgotPassword
               <div className="mt-8 text-center">
                 <span className="text-white/60">Don&apos;t have an account? </span>
                 <button
-                  onClick={onSwitchToRegister}
+                  onClick={() => navigate("/signup")}
                   className="text-amber-400 hover:text-amber-300 transition-colors"
                 >
                   Sign Up
