@@ -50,15 +50,24 @@ import firebaseConfig from "../config/firebase";
 
 // Initialize Firebase (only once)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const auth = getAuth(app);
-// Use named database 'imob-motion' instead of default
-const db = getFirestore(app, "imob-motion");
-const storage = getStorage(app);
-const functions = getFunctions(app);
+export const auth = getAuth(app);
+// Use named database 'imob-motion' because this project uses a named database
+// (the console shows a named DB). Revert to default only if you created the default DB.
+export const db = getFirestore(app, "imob-motion");
+export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
 // Auth providers
 const googleProvider = new GoogleAuthProvider();
 const appleProvider = new OAuthProvider("apple.com");
+
+/**
+ * Helper function to get current user ID
+ * Used by services that need to enforce user ownership
+ */
+export function getCurrentUserId(): string | null {
+  return auth.currentUser?.uid || null;
+}
 
 // ==================== AUTHENTICATION ====================
 
@@ -265,6 +274,13 @@ export const userService = {
       return userDoc.data() as UserData;
     }
     return null;
+  },
+
+  /**
+   * Backwards-compatible alias used by some components
+   */
+  async getUserById(uid: string): Promise<UserData | null> {
+    return await this.getProfile(uid);
   },
 
   /**
@@ -496,6 +512,282 @@ export const projectService = {
   },
 };
 
+// ==================== PHOTOS ====================
+
+export interface ProjectPhoto {
+  id?: string;
+  projectId: string;
+  uid: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  url: string;
+  storagePath: string;
+  thumbnailPath?: string;
+  thumbnailUrl?: string;
+  order: number;
+  duration?: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export const photoService = {
+  /**
+   * Add photo to project with thumbnail generation
+   */
+  async addPhoto(
+    uid: string,
+    projectId: string,
+    file: File,
+    order: number,
+    duration: number = 3
+  ): Promise<{ success: boolean; photo?: ProjectPhoto; error?: string }> {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { generateThumbnail } = await import('./imageService');
+
+      // Upload main file to Storage
+      const storagePath = `users/${uid}/projects/${projectId}/photos/${Date.now()}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+
+      // Generate thumbnail
+      let thumbnailPath: string | undefined;
+      let thumbnailUrl: string | undefined;
+      try {
+        const thumbnailBase64 = await generateThumbnail(file, 200, 150, 0.8);
+        const thumbResponse = await fetch(thumbnailBase64);
+        const thumbBlob = await thumbResponse.blob();
+        const thumbFile = new File([thumbBlob], `${Date.now()}_thumb.jpg`, { type: 'image/jpeg' });
+        
+        thumbnailPath = `users/${uid}/projects/${projectId}/photos/thumbnails/${Date.now()}_thumb.jpg`;
+        const thumbRef = ref(storage, thumbnailPath);
+        await uploadBytes(thumbRef, thumbFile);
+        thumbnailUrl = await getDownloadURL(thumbRef);
+      } catch (thumbError) {
+        console.warn('Thumbnail generation failed:', thumbError);
+        // Continue without thumbnail
+      }
+
+      // Create photo document in Firestore
+      const photosRef = collection(db, `projects/${projectId}/photos`);
+      const docRef = doc(photosRef);
+      const photoDoc = {
+        projectId,
+        uid,
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        url,
+        storagePath,
+        thumbnailPath,
+        thumbnailUrl,
+        order,
+        duration,
+        createdAt: serverTimestamp() as Timestamp,
+        updatedAt: serverTimestamp() as Timestamp,
+      };
+
+      await setDoc(docRef, photoDoc);
+      return {
+        success: true,
+        photo: { id: docRef.id, ...photoDoc } as ProjectPhoto,
+      };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
+   * Get all photos for a project
+   */
+  async getProjectPhotos(projectId: string): Promise<ProjectPhoto[]> {
+    try {
+      const photosRef = collection(db, `projects/${projectId}/photos`);
+      const q = query(photosRef, orderBy("order", "asc"));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as ProjectPhoto[];
+    } catch (error) {
+      console.error("Error fetching photos:", error);
+      return [];
+    }
+  },
+
+  /**
+   * Reorder photos (bulk update)
+   */
+  async reorderPhotos(
+    projectId: string,
+    photoOrders: { id: string; order: number }[]
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      for (const { id, order } of photoOrders) {
+        const photoRef = doc(db, `projects/${projectId}/photos/${id}`);
+        await updateDoc(photoRef, {
+          order,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      return { success: true };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
+   * Delete photo
+   */
+  async deletePhoto(
+    projectId: string,
+    photoId: string,
+    storagePath: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const storageRef = ref(storage, storagePath);
+      await deleteObject(storageRef);
+
+      const photoRef = doc(db, `projects/${projectId}/photos/${photoId}`);
+      await deleteDoc(photoRef);
+
+      return { success: true };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
+   * Listen to photos changes (realtime)
+   */
+  onPhotosChange(
+    projectId: string,
+    callback: (photos: ProjectPhoto[]) => void
+  ): () => void {
+    const photosRef = collection(db, `projects/${projectId}/photos`);
+    const q = query(photosRef, orderBy("order", "asc"));
+    return onSnapshot(q, (snapshot) => {
+      const photos = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as ProjectPhoto[];
+      callback(photos);
+    });
+  },
+};
+
+// ==================== ASSETS ====================
+
+export interface Asset {
+  id?: string;
+  uid: string;
+  type: "logo" | "music" | "video";
+  name: string;
+  url: string;
+  storagePath: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export const assetService = {
+  /**
+   * Upload asset
+   */
+  async uploadAsset(
+    uid: string,
+    type: "logo" | "music" | "video",
+    file: File,
+    metadata?: Record<string, unknown>
+  ): Promise<{ success: boolean; asset?: Asset; error?: string }> {
+    try {
+      const storagePath = `users/${uid}/assets/${type}/${Date.now()}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+
+      const assetsRef = collection(db, "assets");
+      const docRef = doc(assetsRef);
+      const assetDoc = {
+        uid,
+        type,
+        name: file.name,
+        url,
+        storagePath,
+        ...(metadata && { metadata }),  // Only include if defined
+        createdAt: serverTimestamp() as Timestamp,
+        updatedAt: serverTimestamp() as Timestamp,
+      };
+
+      await setDoc(docRef, assetDoc);
+      return {
+        success: true,
+        asset: { id: docRef.id, ...assetDoc } as Asset,
+      };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
+   * Get user assets by type
+   */
+  async getUserAssets(uid: string, type?: string): Promise<Asset[]> {
+    try {
+      const assetsRef = collection(db, "assets");
+      let q;
+      if (type) {
+        q = query(
+          assetsRef,
+          where("uid", "==", uid),
+          where("type", "==", type),
+          orderBy("createdAt", "desc")
+        );
+      } else {
+        q = query(
+          assetsRef,
+          where("uid", "==", uid),
+          orderBy("createdAt", "desc")
+        );
+      }
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Asset[];
+    } catch (error) {
+      console.error("Error fetching assets:", error);
+      return [];
+    }
+  },
+
+  /**
+   * Delete asset
+   */
+  async deleteAsset(
+    assetId: string,
+    storagePath: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const storageRef = ref(storage, storagePath);
+      await deleteObject(storageRef);
+
+      await deleteDoc(doc(db, "assets", assetId));
+
+      return { success: true };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+};
+
 // ==================== STORAGE ====================
 
 export const storageService = {
@@ -545,6 +837,23 @@ export const storageService = {
   },
 
   /**
+   * Get signed download URL for a storage path (for videos with expiry)
+   */
+  async getSignedUrl(
+    storagePath: string,
+    expirationMinutes: number = 60
+  ): Promise<{ success: boolean; url?: string; expiresAt?: number; error?: string }> {
+    // Signed URLs must be created server-side (admin SDK). Use cloud function helper.
+    try {
+      const result = await cloudFunctions.getSignedVideoUrl(storagePath, expirationMinutes);
+      return result;
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
    * Delete file
    */
   async deleteFile(storagePath: string): Promise<{ success: boolean; error?: string }> {
@@ -582,6 +891,67 @@ export const cloudFunctions = {
 
       const result = await createVideoJobFn({ projectId, photos, config });
       return { success: true, jobId: result.data.jobId };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
+   * Get signed video URL for playback
+   */
+  async getSignedVideoUrl(
+    storagePath: string,
+    expirationMinutes: number = 60
+  ): Promise<{ success: boolean; url?: string; expiresAt?: number; error?: string }> {
+    try {
+      const getSignedVideoUrlFn = httpsCallable<
+        { storagePath: string; expirationMinutes?: number },
+        { url: string; expiresAt: number }
+      >(functions, "getSignedVideoUrl");
+
+      const result = await getSignedVideoUrlFn({ storagePath, expirationMinutes });
+      return { success: true, url: result.data.url, expiresAt: result.data.expiresAt };
+    } catch (error: unknown) {
+      const firebaseError = error as { message?: string };
+      return { success: false, error: firebaseError.message };
+    }
+  },
+
+  /**
+   * Create Stripe checkout session
+   */
+  async createCheckoutSession(
+    planId: string,
+    planName: string,
+    priceInCents: number,
+    creditsAmount: number,
+    successUrl: string,
+    cancelUrl: string
+  ): Promise<{ success: boolean; sessionId?: string; url?: string; error?: string }> {
+    try {
+      const createCheckoutSessionFn = httpsCallable<
+        {
+          planId: string;
+          planName: string;
+          priceInCents: number;
+          creditsAmount: number;
+          successUrl: string;
+          cancelUrl: string;
+        },
+        { sessionId: string; url: string }
+      >(functions, "createCheckoutSession");
+
+      const result = await createCheckoutSessionFn({
+        planId,
+        planName,
+        priceInCents,
+        creditsAmount,
+        successUrl,
+        cancelUrl,
+      });
+
+      return { success: true, sessionId: result.data.sessionId, url: result.data.url };
     } catch (error: unknown) {
       const firebaseError = error as { message?: string };
       return { success: false, error: firebaseError.message };
@@ -655,5 +1025,3 @@ export const jobService = {
   },
 };
 
-// Export Firebase instances for direct use if needed
-export { auth, db, storage, functions };

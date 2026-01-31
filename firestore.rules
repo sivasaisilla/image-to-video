@@ -26,6 +26,18 @@ service cloud.firestore {
       // Only Cloud Functions can create users (via Auth trigger)
       allow create: if false;
       allow delete: if false;
+
+      // Subcollection: credit_ledger (transaction history)
+      match /credit_ledger/{entryId} {
+        allow read: if isOwner(userId);
+        // Only Cloud Functions can modify credit ledger
+        allow create, update, delete: if false;
+      }
+
+      // Subcollection: wizard_sessions (wizard form data)
+      match /wizard_sessions/{projectId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // ============ PROJECTS ============
@@ -47,18 +59,21 @@ service cloud.firestore {
 
     // ============ JOBS ============
     match /jobs/{jobId} {
-      // Users can read their own jobs (created by Cloud Functions)
+      // Users can read their own jobs
       allow read: if ownsResource();
-      // Only Cloud Functions can create/update jobs
-      allow create, update, delete: if false;
+      // Cloud Functions create jobs, but also allow client creation for status polling
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false; // Only Cloud Functions can modify
     }
 
     // ============ ASSETS ============
     match /assets/{assetId} {
       // Users can read their own assets
       allow read: if ownsResource();
-      // Only Cloud Functions can create assets
-      allow create, update, delete: if false;
+      // Users can create and update their own assets
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if ownsResource();
+      allow delete: if ownsResource();
     }
 
     // ============ PLANS ============
@@ -66,6 +81,14 @@ service cloud.firestore {
       // Everyone can read plans (public pricing)
       allow read: if true;
       // Only admins can modify plans (via Firebase Console)
+      allow write: if false;
+    }
+
+    // ============ MUSIC CATALOG ============
+    match /music_catalog/{songId} {
+      // Everyone can read music catalog (public)
+      allow read: if true;
+      // Only Cloud Functions can modify music catalog
       allow write: if false;
     }
 
@@ -77,12 +100,10 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // ============ CREDIT LEDGER ============
+    // ============ CREDIT LEDGER (Old global collection) ============
+    // Deprecated - now under users/{uid}/credit_ledger
     match /credit_ledger/{entryId} {
-      // Users can read their own credit entries
-      allow read: if ownsResource();
-      // Only Cloud Functions can modify credit ledger
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
 
     // ============ PAYMENTS ============

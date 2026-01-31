@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import svgPaths from "@/imports/svg-nqiqmt8jqs";
 
 interface DashboardHeaderProps {
@@ -438,23 +439,55 @@ export function DashboardHeader({
   onNavigateToReferral,
   activePage
 }: DashboardHeaderProps) {
+  const navigate = useNavigate();
+
+  const handleNavigateToCreate = () => {
+    if (onNavigateToCreate) return onNavigateToCreate();
+    navigate('/dashboard');
+  };
+
+  const handleNavigateToProjects = () => {
+    if (onNavigateToProjects) return onNavigateToProjects();
+    navigate('/projects');
+  };
+
+  const handleNavigateToPlans = () => {
+    if (onNavigateToPlans) return onNavigateToPlans();
+    navigate('/plans');
+  };
+
+  const handleNavigateToReferral = () => {
+    if (onNavigateToReferral) return onNavigateToReferral();
+    navigate('/referral');
+  };
+
+  const handleNavigateToProfile = () => {
+    if (onNavigateToProfile) return onNavigateToProfile();
+    navigate('/profile');
+  };
+
+  const handleNavigateToSettings = () => {
+    if (onNavigateToSettings) return onNavigateToSettings();
+    navigate('/settings');
+  };
+
   return (
     <div className="relative w-full">
       <div className="flex flex-row items-center w-full">
         <div className="content-stretch flex items-center justify-between px-[50px] py-0 relative w-full">
           <Container />
           <Header 
-            onNavigateToProjects={onNavigateToProjects} 
-            onNavigateToCreate={onNavigateToCreate} 
-            onNavigateToPlans={onNavigateToPlans}
-            onNavigateToReferral={onNavigateToReferral}
+            onNavigateToProjects={handleNavigateToProjects} 
+            onNavigateToCreate={handleNavigateToCreate} 
+            onNavigateToPlans={handleNavigateToPlans}
+            onNavigateToReferral={handleNavigateToReferral}
             activePage={activePage} 
           />
           <Header1 
-            onNavigateToProjects={onNavigateToProjects}
-            onNavigateToProfile={onNavigateToProfile}
-            onNavigateToSettings={onNavigateToSettings}
-            onNavigateToPlans={onNavigateToPlans}
+            onNavigateToProjects={handleNavigateToProjects}
+            onNavigateToProfile={handleNavigateToProfile}
+            onNavigateToSettings={handleNavigateToSettings}
+            onNavigateToPlans={handleNavigateToPlans}
             onLogout={onLogout}
           />
         </div>

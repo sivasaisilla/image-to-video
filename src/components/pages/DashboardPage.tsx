@@ -4,7 +4,10 @@ import { Infinity, Plus, FolderOpen, Image, CreditCard, Upload, Music, MapPin, C
 import { motion } from "motion/react";
 import { InteractiveMap } from "../common";
 import { DashboardHeader } from "../layout";
-import { authService, storageService, projectService, cloudFunctions } from "../../services/firebase";
+import { VideoPlaybackModal } from "../modals";
+import { authService, storageService, projectService, cloudFunctions, photoService, assetService, jobService, ProjectPhoto } from "../../services/firebase";
+import { musicService, DEFAULT_MUSIC_LIBRARY } from "../../services/musicService";
+import { wizardService } from "../../services/wizardService";
 
 interface UploadedPhoto {
   id: string;
@@ -22,6 +25,7 @@ interface PreviousLogo {
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
@@ -33,6 +37,11 @@ export function DashboardPage() {
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
   const [videoCreated, setVideoCreated] = useState(false);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<'processing' | 'completed' | 'failed' | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoExpiresAt, setVideoExpiresAt] = useState<number | null>(null);
+  const [showVideoPlayback, setShowVideoPlayback] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
 
@@ -64,7 +73,67 @@ export function DashboardPage() {
   const [importMethod, setImportMethod] = useState<'url' | 'manual'>('manual');
   const [listingUrl, setListingUrl] = useState<string>("");
   const [isFetchingUrl, setIsFetchingUrl] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [useFreeVideo, setUseFreeVideo] = useState(false);
+  const [musicLibrary, setMusicLibrary] = useState(DEFAULT_MUSIC_LIBRARY);
+  
+  // Load music catalog from Firestore on component mount
+  useEffect(() => {
+    musicService.getAllSongs().then(songs => {
+      if (songs && songs.length > 0) {
+        setMusicLibrary(songs);
+      }
+    }).catch(error => {
+      console.error('Failed to load music catalog:', error);
+      setMusicLibrary(DEFAULT_MUSIC_LIBRARY);
+    });
+  }, []);
+
+  // Load wizard data when project changes
+  useEffect(() => {
+    if (!currentProjectId) return;
+
+    wizardService.getWizardData(currentProjectId).then(wizardData => {
+      if (wizardData) {
+        if (wizardData.step2?.showLogoOnVideo !== undefined) {
+          setShowLogoOnVideo(wizardData.step2.showLogoOnVideo);
+        }
+        if (wizardData.step2?.logoUrl) {
+          setUploadedLogo(wizardData.step2.logoUrl);
+        }
+        if (wizardData.step3?.selectedMusicId) {
+          setSelectedMusic(wizardData.step3.selectedMusicId);
+        }
+        if (wizardData.step4?.address) {
+          setAddressQuery(wizardData.step4.address);
+          if (wizardData.step4.city) setCity(wizardData.step4.city);
+          if (wizardData.step4.state) setState(wizardData.step4.state);
+          if (wizardData.step4.propertyType) setPropertyType(wizardData.step4.propertyType);
+        }
+      }
+    }).catch(error => {
+      console.error('Failed to load wizard data:', error);
+    });
+  }, [currentProjectId]);
+
+  // Auto-save wizard data on step changes
+  useEffect(() => {
+    if (!currentProjectId) return;
+
+    const saveTimeout = setTimeout(() => {
+      const stepData = {
+        step1: { photosCount: uploadedPhotos.length },
+        step2: { showLogoOnVideo, logoUrl: uploadedLogo },
+        step3: { selectedMusicId: selectedMusic },
+        step4: { address: addressQuery, city, state, propertyType }
+      };
+
+      wizardService.saveWizardData(currentProjectId, stepData)
+        .catch(error => console.error('Failed to save wizard data:', error));
+    }, 1000); // Debounce saves by 1 second
+
+    return () => clearTimeout(saveTimeout);
+  }, [currentProjectId, uploadedPhotos.length, showLogoOnVideo, uploadedLogo, selectedMusic, addressQuery, city, state, propertyType]);
   
   // Mock free video seconds - in production this would come from backend
   const availableFreeSeconds = 120; // Total free seconds available (e.g., 2x60s videos)
@@ -82,6 +151,107 @@ export function DashboardPage() {
     { name: "Add Address", icon: MapPin },
     { name: "Project Summary", icon: CheckCircle2 },
   ];
+
+  // Load photos when project changes
+  useEffect(() => {
+    if (!currentProjectId) return;
+
+    const unsubscribe = photoService.onPhotosChange(currentProjectId, (photos) => {
+      const convertedPhotos: UploadedPhoto[] = photos.map((photo: ProjectPhoto) => ({
+        id: photo.id || '',
+        name: photo.fileName,
+        size: formatFileSize(photo.fileSize),
+        url: photo.url,
+        storagePath: photo.storagePath,
+      }));
+      setUploadedPhotos(convertedPhotos);
+      setHasUploadedFiles(convertedPhotos.length > 0);
+    });
+
+    return () => unsubscribe();
+  }, [currentProjectId]);
+
+  // Load previous logos when component mounts
+  useEffect(() => {
+    const loadPreviousLogos = async () => {
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) return;
+
+      const logos = await assetService.getUserAssets(currentUser.uid, 'logo');
+      const convertedLogos: PreviousLogo[] = logos.map((logo) => ({
+        id: logo.id || '',
+        url: logo.url,
+        uploadedAt: logo.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+      }));
+      setPreviousLogos(convertedLogos);
+    };
+
+    loadPreviousLogos();
+  }, []);
+
+  // Listen to job status changes (realtime)
+  useEffect(() => {
+    if (!currentJobId) return;
+
+    const unsubscribe = jobService.onJobChange(currentJobId, async (job) => {
+      if (job) {
+        setJobStatus(job.status as 'processing' | 'completed' | 'failed');
+        
+        if (job.status === 'completed' && job.output?.videoAssetId) {
+          // Get the video asset to find its storage path
+          const assetId = job.output.videoAssetId;
+          console.log('Job completed with video asset:', assetId);
+          
+          // Get signed URL for playback
+          // The asset storage path is stored in the job, we'll construct it
+          const videoStoragePath = `users/${job.uid}/videos/${job.projectId}_${Date.now()}.mp4`;
+          
+          // Actually, we should get it from the asset document, but for now we'll use the path from webhook
+          // The webhook stores it, we just need to generate a signed URL
+          // Since we don't have direct access to asset doc from here, we'll fetch the job's video path
+          
+          // For now, construct the typical path - in production you'd fetch the asset doc
+          const estimatedPath = job.input?.imageUrls?.[0] ? 
+            `users/${job.uid}/videos/${job.projectId}_${Date.now()}.mp4` : null;
+          
+          if (estimatedPath) {
+            const urlResult = await cloudFunctions.getSignedVideoUrl(estimatedPath, 60);
+            if (urlResult.success && urlResult.url) {
+              setVideoUrl(urlResult.url);
+              setVideoExpiresAt(urlResult.expiresAt || null);
+              setShowVideoPlayback(true);
+            }
+          }
+          
+          setVideoCreated(true);
+          setUploadSuccess(true);
+          
+          // Clean up wizard session after successful video creation
+          if (currentProjectId) {
+            wizardService.deleteWizardSession(currentProjectId)
+              .catch(error => console.error('Failed to delete wizard session:', error));
+          }
+          
+          // Auto-navigate to projects after video is done
+          setTimeout(() => {
+            setVideoCreated(false);
+            setCurrentStep(0);
+            setUploadedPhotos([]);
+            setHasUploadedFiles(false);
+            setSelectedLogo(null);
+            setUploadedLogo(null);
+            setCurrentProjectId(null);
+            setCurrentJobId(null);
+          }, 3000);
+        } else if (job.status === 'failed') {
+          alert(`Video generation failed: ${job.error || 'Unknown error'}`);
+          setCurrentJobId(null);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentJobId]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -114,34 +284,54 @@ export function DashboardPage() {
         return;
       }
 
-      // Create project if not exists
-      if (!currentProjectId) {
+      // Create project if not exists or use existing one
+      let projectId = currentProjectId;
+      
+      if (!projectId) {
         const projectResult = await projectService.create(currentUser.uid, `Project ${new Date().toLocaleDateString()}`);
         if (!projectResult.success || !projectResult.projectId) {
           throw new Error('Failed to create project');
         }
-        setCurrentProjectId(projectResult.projectId);
+        projectId = projectResult.projectId;  // Use the newly created ID directly
+        setCurrentProjectId(projectId);  // Update state for future uploads
       }
 
-      const projectId = currentProjectId || 'temp';
-      const newPhotos: UploadedPhoto[] = [];
+      if (!projectId) throw new Error('No project ID');
 
-      // Upload each file to Firebase Storage
+      // Get current photo count for ordering
+      const existingPhotos = await photoService.getProjectPhotos(projectId);
+      let nextOrder = existingPhotos.length;
+
+      // Upload each file using photoService (which handles Firestore persistence)
       for (const file of files) {
-        const result = await storageService.uploadProjectPhoto(currentUser.uid, projectId, file);
+        try {
+          const photoResult = await photoService.addPhoto(
+            currentUser.uid,
+            projectId,
+            file,
+            nextOrder,
+            3 // 3 seconds per photo
+          );
 
-        if (result.success && result.url) {
-          newPhotos.push({
-            id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: file.name,
-            size: formatFileSize(file.size),
-            url: result.url,
-            storagePath: result.storagePath,
-          });
+          if (!photoResult.success) {
+            console.error('Failed to upload photo:', photoResult.error);
+            alert(`Failed to upload ${file.name}: ${photoResult.error}`);
+          }
+          nextOrder++;
+        } catch (fileError) {
+          console.error('Error uploading individual file:', fileError);
+          alert(`Error uploading ${file.name}`);
         }
       }
 
-      setUploadedPhotos([...uploadedPhotos, ...newPhotos]);
+      // Update project stepState
+      const project = await projectService.getProject(projectId);
+      if (project) {
+        await projectService.update(projectId, {
+          stepState: { ...project.stepState, photos: true }
+        });
+      }
+
       setUploadSuccess(true);
       setHasUploadedFiles(true);
       setTimeout(() => setUploadSuccess(false), 3000);
@@ -161,8 +351,41 @@ export function DashboardPage() {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
   };
 
-  const removePhoto = (id: string) => {
-    setUploadedPhotos(uploadedPhotos.filter(photo => photo.id !== id));
+  const removePhoto = async (id: string) => {
+    if (!currentProjectId) return;
+
+    try {
+      const photoToRemove = uploadedPhotos.find(p => p.id === id);
+      if (!photoToRemove) return;
+
+      await photoService.deletePhoto(currentProjectId, id, photoToRemove.storagePath || '');
+      // Photo will be removed automatically via realtime listener
+    } catch (error) {
+      console.error('Failed to delete photo:', error);
+      alert('Failed to delete photo');
+    }
+  };
+
+  const handlePhotoReorder = async (fromIndex: number, toIndex: number) => {
+    if (!currentProjectId) return;
+
+    try {
+      // Reorder local state
+      const newPhotos = [...uploadedPhotos];
+      const [removed] = newPhotos.splice(fromIndex, 1);
+      newPhotos.splice(toIndex, 0, removed);
+
+      // Update Firestore with new orders
+      const photoOrders = newPhotos.map((photo, idx) => ({
+        id: photo.id,
+        order: idx,
+      }));
+
+      await photoService.reorderPhotos(currentProjectId, photoOrders);
+    } catch (error) {
+      console.error('Failed to reorder photos:', error);
+      alert('Failed to reorder photos');
+    }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,62 +399,137 @@ export function DashboardPage() {
     
     setIsFetchingUrl(true);
     
-    // Simulate fetching photos from URL (in real app, this would be an API call)
-    setTimeout(() => {
-      // Mock photos from URL
-      const mockPhotos: UploadedPhoto[] = [
-        {
-          id: 'url-1',
-          name: 'Living Room.jpg',
-          size: '2.4 MB',
-          url: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&h=600&fit=crop'
-        },
-        {
-          id: 'url-2',
-          name: 'Kitchen.jpg',
-          size: '3.1 MB',
-          url: 'https://images.unsplash.com/photo-1556912173-3bb406ef7e77?w=800&h=600&fit=crop'
-        },
-        {
-          id: 'url-3',
-          name: 'Bedroom.jpg',
-          size: '2.8 MB',
-          url: 'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=800&h=600&fit=crop'
-        },
-        {
-          id: 'url-4',
-          name: 'Bathroom.jpg',
-          size: '2.2 MB',
-          url: 'https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=800&h=600&fit=crop'
-        },
-        {
-          id: 'url-5',
-          name: 'Exterior.jpg',
-          size: '3.5 MB',
-          url: 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&h=600&fit=crop'
-        }
-      ];
+    try {
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) {
+        alert('Please login to import photos');
+        setIsFetchingUrl(false);
+        return;
+      }
+
+      // Create project if not exists or use existing one
+      let projectId = currentProjectId;
       
-      setUploadedPhotos(mockPhotos);
+      if (!projectId) {
+        const projectResult = await projectService.create(currentUser.uid, `Project ${new Date().toLocaleDateString()}`);
+        if (!projectResult.success || !projectResult.projectId) {
+          throw new Error('Failed to create project');
+        }
+        projectId = projectResult.projectId;  // Use the newly created ID directly
+        setCurrentProjectId(projectId);  // Update state for future imports
+      }
+
+      if (!projectId) throw new Error('No project ID');
+
+      // Fetch image from URL
+      const response = await fetch(listingUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      
+      // Validate it's an image
+      if (!blob.type.startsWith('image/')) {
+        throw new Error('URL does not point to a valid image');
+      }
+
+      // Extract filename from URL or create one
+      const urlPath = new URL(listingUrl).pathname;
+      const filename = urlPath.split('/').pop() || `image-${Date.now()}.jpg`;
+      
+      // Create a File object from the blob
+      const file = new File([blob], filename, { type: blob.type });
+
+      // Get current photo count for ordering
+      const existingPhotos = await photoService.getProjectPhotos(projectId);
+      let nextOrder = existingPhotos.length;
+
+      // Upload using photoService (same as manual upload)
+      const photoResult = await photoService.addPhoto(
+        currentUser.uid,
+        projectId,
+        file,
+        nextOrder,
+        3 // 3 seconds per photo
+      );
+
+      if (!photoResult.success) {
+        throw new Error(photoResult.error || 'Failed to upload imported image');
+      }
+
+      // Clear the URL input
+      setListingUrl('');
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 3000);
+      
       setIsFetchingUrl(false);
-    }, 2000);
+    } catch (error) {
+      console.error('URL import error:', error);
+      alert('Failed to import from URL. Please upload photos directly.');
+      setIsFetchingUrl(false);
+    }
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const logoUrl = URL.createObjectURL(file);
       
-      // Add to previous logos
-      const newLogo: PreviousLogo = {
-        id: `logo-${Date.now()}`,
-        url: logoUrl,
-        uploadedAt: new Date().toISOString()
-      };
-      setPreviousLogos([newLogo, ...previousLogos]);
+      setIsUploadingLogo(true);
       
-      setUploadedLogo(logoUrl);
-      setSelectedLogo(null);
+      try {
+        const currentUser = authService.getCurrentUser();
+        if (!currentUser) {
+          alert('Please login to upload logo');
+          setIsUploadingLogo(false);
+          return;
+        }
+
+        console.log('Starting logo upload for:', file.name);
+        const assetResult = await assetService.uploadAsset(currentUser.uid, 'logo', file);
+        console.log('Asset upload result:', assetResult);
+        
+        if (assetResult.success && assetResult.asset) {
+          console.log('Logo uploaded successfully:', assetResult.asset.url);
+          
+          // Update project with logo asset ID
+          if (currentProjectId) {
+            console.log('Updating project with logo asset ID');
+            const updateResult = await projectService.update(currentProjectId, {
+              branding: {
+                enabled: true,
+                logoAssetId: assetResult.asset.id || null
+              }
+            });
+            console.log('Project update result:', updateResult);
+          }
+
+          // Add to previous logos
+          const newLogo: PreviousLogo = {
+            id: assetResult.asset.id || `logo-${Date.now()}`,
+            url: assetResult.asset.url,
+            uploadedAt: new Date().toISOString()
+          };
+          setPreviousLogos([newLogo, ...previousLogos]);
+          
+          setUploadedLogo(assetResult.asset.url);
+          setSelectedLogo(assetResult.asset.url);
+          setUploadSuccess(true);
+          setTimeout(() => setUploadSuccess(false), 3000);
+        } else {
+          console.error('Asset upload failed:', assetResult.error);
+          alert(`Failed to upload logo: ${assetResult.error}`);
+        }
+      } catch (error) {
+        console.error('Logo upload failed:', error);
+        alert('Failed to upload logo. Please try again.');
+      } finally {
+        setIsUploadingLogo(false);
+        // Reset file input so the same file can be selected again
+        if (logoFileInputRef.current) {
+          logoFileInputRef.current.value = '';
+        }
+      }
     }
   };
 
@@ -252,38 +550,27 @@ export function DashboardPage() {
         return;
       }
 
-      // Get photo URLs for video generation
-      const photoUrls = uploadedPhotos.map(p => p.url);
+      // Get photo storage paths (not URLs) for the Cloud Function
+      const photoStoragePaths = uploadedPhotos.map(p => p.storagePath || '');
 
       // Call Cloud Function to create video job
-      const result = await cloudFunctions.createVideoJob(currentProjectId, photoUrls, {
+      const result = await cloudFunctions.createVideoJob(currentProjectId, photoStoragePaths, {
         duration: currentVideoSeconds,
         aspectRatio: '16:9',
         prompt: `Professional real estate video showcasing property at ${addressQuery || 'the location'}`,
       });
 
-      if (result.success) {
-        setVideoCreated(true);
-        setUploadSuccess(true);
-
-        // Show success message
-        setTimeout(() => {
-          setVideoCreated(false);
-          // Reset to first step after successful creation
-          setCurrentStep(0);
-          setUploadedPhotos([]);
-          setHasUploadedFiles(false);
-          setSelectedLogo(null);
-          setUploadedLogo(null);
-          setCurrentProjectId(null);
-        }, 3000);
+      if (result.success && result.jobId) {
+        setCurrentJobId(result.jobId);
+        setJobStatus('processing');
+        setCreationStep('processing');
+        setIsCreating(true);
       } else {
         throw new Error(result.error || 'Failed to create video');
       }
     } catch (error) {
       console.error('Video creation failed:', error);
       alert('Failed to create video. Please try again.');
-    } finally {
       setIsCreatingVideo(false);
     }
   };
@@ -301,24 +588,8 @@ export function DashboardPage() {
 
   const musicFilters = ["All", "Beautiful ambient", "Chill", "Elegant gently", "Modern hip-hop", "Vocal music songs"];
 
-  const musicLibrary = [
-    { id: 'song1', name: 'Peaceful Morning', category: 'Beautiful ambient', color: 'bg-blue-500' },
-    { id: 'song2', name: 'Urban Dreams', category: 'Modern hip-hop', color: 'bg-purple-500' },
-    { id: 'song3', name: 'Smooth Vibes', category: 'Chill', color: 'bg-green-500' },
-    { id: 'song4', name: 'Classical Touch', category: 'Elegant gently', color: 'bg-amber-500' },
-    { id: 'song5', name: 'Sunset Boulevard', category: 'Chill', color: 'bg-pink-500' },
-    { id: 'song6', name: 'Ocean Breeze', category: 'Beautiful ambient', color: 'bg-cyan-500' },
-    { id: 'song7', name: 'Street Rhythm', category: 'Modern hip-hop', color: 'bg-red-500' },
-    { id: 'song8', name: 'Piano Elegance', category: 'Elegant gently', color: 'bg-indigo-500' },
-    { id: 'song9', name: 'Dreamy Clouds', category: 'Beautiful ambient', color: 'bg-violet-500' },
-    { id: 'song10', name: 'Lofi Beats', category: 'Chill', color: 'bg-teal-500' },
-    { id: 'song11', name: 'Vocal Harmony', category: 'Vocal music songs', color: 'bg-orange-500' },
-    { id: 'song12', name: 'Midnight Echo', category: 'Modern hip-hop', color: 'bg-slate-500' },
-    { id: 'song13', name: 'Soft Melody', category: 'Elegant gently', color: 'bg-rose-500' },
-    { id: 'song14', name: 'Summer Vibes', category: 'Vocal music songs', color: 'bg-lime-500' },
-    { id: 'song15', name: 'Acoustic Soul', category: 'Vocal music songs', color: 'bg-emerald-500' },
-  ];
-
+  // musicLibrary is now fetched from Firestore via useEffect above
+  
   const filteredMusic = musicFilter === "All" 
     ? musicLibrary 
     : musicLibrary.filter(song => song.category === musicFilter);
@@ -357,6 +628,18 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#131519] text-white relative">
+      {/* Video Playback Modal */}
+      <VideoPlaybackModal
+        isOpen={showVideoPlayback}
+        onClose={() => {
+          setShowVideoPlayback(false);
+          setVideoUrl(null);
+        }}
+        videoUrl={videoUrl || ""}
+        videoTitle="Generated Video"
+        expiresAt={videoExpiresAt || undefined}
+      />
+
       {/* Background Gradients */}
       <div className="fixed blur-3xl filter left-[-352px] rounded-[1.67772e+07px] size-[800px] top-[-400px] pointer-events-none" style={{ backgroundImage: "linear-gradient(135deg, rgba(225, 113, 0, 0.2) 0%, rgba(245, 73, 0, 0.1) 50%, rgba(0, 0, 0, 0) 100%)" }} />
       <div className="fixed blur-3xl filter left-[1501px] rounded-[1.67772e+07px] size-[800px] top-[580px] pointer-events-none" style={{ backgroundImage: "linear-gradient(-45deg, rgba(208, 135, 0, 0.2) 0%, rgba(225, 113, 0, 0.1) 50%, rgba(0, 0, 0, 0) 100%)" }} />
@@ -783,14 +1066,25 @@ export function DashboardPage() {
                     <div className="mb-6">
                       <label className="block cursor-pointer">
                         <input
+                          ref={logoFileInputRef}
                           type="file"
                           accept="image/*"
                           onChange={handleLogoUpload}
+                          disabled={isUploadingLogo}
                           className="hidden"
                         />
-                        <div className="w-full py-3 backdrop-blur-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-amber-400/30 transition-all text-white rounded-lg text-center flex items-center justify-center gap-2">
-                          <Upload className="w-4 h-4" />
-                          <span className="text-sm">Upload Your Logo</span>
+                        <div className={`w-full py-3 backdrop-blur-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-amber-400/30 transition-all text-white rounded-lg text-center flex items-center justify-center gap-2 ${isUploadingLogo ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                          {isUploadingLogo ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                              <span className="text-sm">Uploading Logo...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-4 h-4" />
+                              <span className="text-sm">Upload Your Logo</span>
+                            </>
+                          )}
                         </div>
                       </label>
                     </div>

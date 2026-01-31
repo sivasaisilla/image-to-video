@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Gift, Copy, Check, Users, CreditCard, Award, Clock, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
 import { DashboardHeader } from "../layout/DashboardHeader";
+import { referralService } from "../../services/referralService";
 
 interface ReferralPageProps {
   onNavigateToCreate?: () => void;
@@ -34,52 +35,64 @@ export function ReferralPage({
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'program' | 'history'>('program');
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [referrals, setReferrals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  // Mock referral code - in production this would come from backend
-  const referralCode = "IC-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+  // Load referral code and data on mount
+  useEffect(() => {
+    let unsubscribeReferrals: (() => void) | null = null;
+    let mounted = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+
+        // Get referral code
+        const code = await referralService.getReferralCode();
+        if (mounted) setReferralCode(code);
+
+        // Subscribe to referrals in real-time
+        unsubscribeReferrals = referralService.onMyReferralsChange((items) => {
+          if (mounted) setReferrals(items);
+        });
+      } catch (error) {
+        console.error('Error loading referral data:', error);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      if (unsubscribeReferrals) unsubscribeReferrals();
+    };
+  }, []);
 
   const handleCopyCode = () => {
+    if (!referralCode) return;
     navigator.clipboard.writeText(referralCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Mock free credits data (now in seconds)
-  const freeCredits: FreeCredit[] = [
-    {
-      id: "fc-1",
-      earnedFrom: "Sarah Johnson",
-      earnedDate: "Dec 15, 2024",
-      expiryDate: "Jan 14, 2025",
-      status: "available",
-      seconds: 60
-    },
-    {
-      id: "fc-2",
-      earnedFrom: "Emma Wilson",
-      earnedDate: "Dec 20, 2024",
-      expiryDate: "Jan 19, 2025",
-      status: "available",
-      seconds: 60
-    },
-    {
-      id: "fc-3",
-      earnedFrom: "Michael Chen",
-      earnedDate: "Nov 10, 2024",
-      expiryDate: "Dec 10, 2024",
-      status: "used",
-      usedDate: "Nov 25, 2024",
-      seconds: 60
-    },
-    {
-      id: "fc-4",
-      earnedFrom: "David Lee",
-      earnedDate: "Oct 5, 2024",
-      expiryDate: "Nov 4, 2024",
-      status: "expired",
-      seconds: 60
-    }
-  ];
+  // Transform Firestore referrals to display format
+  const completedReferrals = referrals.filter(r => r.status === 'completed');
+  const pendingReferrals = referrals.filter(r => r.status === 'pending');
+
+  // Calculate stats from referrals
+  const totalReferrals = referrals.length;
+  const totalEarnedSeconds = completedReferrals.reduce((sum, r) => sum + (r.rewardSeconds || 300), 0);
+
+  // Mock free credits data (now in seconds) - This will be replaced by credit ledger in Phase 9
+  const freeCredits: any[] = completedReferrals.map((ref, idx) => ({
+    id: ref.id,
+    earnedFrom: ref.referredName || ref.referredEmail || 'Unknown User',
+    earnedDate: ref.completedAt ? new Date(ref.completedAt.toDate()).toLocaleDateString() : new Date().toLocaleDateString(),
+    expiryDate: ref.completedAt ? new Date(ref.completedAt.toDate().getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+    status: 'available',
+    seconds: ref.rewardSeconds || 300
+  }));
 
   const availableCredits = freeCredits.filter(c => c.status === 'available');
   const usedCredits = freeCredits.filter(c => c.status === 'used');
@@ -87,7 +100,17 @@ export function ReferralPage({
 
   const totalAvailableSeconds = availableCredits.reduce((sum, c) => sum + c.seconds, 0);
   const totalUsedSeconds = usedCredits.reduce((sum, c) => sum + c.seconds, 0);
-  const totalEarnedSeconds = freeCredits.reduce((sum, c) => sum + c.seconds, 0);
+  const totalEarnedSecondsFromCredits = freeCredits.reduce((sum, c) => sum + c.seconds, 0);
+
+  // Transform referrals for history display
+  const referralHistoryDisplay = referrals.map(r => ({
+    name: r.referredName || r.referredEmail || 'Unknown User',
+    status: r.status === 'completed' ? 'completed' : 'pending',
+    date: r.status === 'completed' 
+      ? new Date(r.completedAt.toDate()).toLocaleDateString()
+      : new Date(r.createdAt.toDate()).toLocaleDateString(),
+    reward: r.status === 'completed' ? `${r.rewardSeconds || 300}s` : 'Pending'
+  }));
 
   const referralHistory = [
     { name: "Sarah Johnson", status: "completed", date: "Dec 15, 2024", reward: "60s" },
@@ -173,11 +196,14 @@ export function ReferralPage({
                 </div>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="flex-1 bg-white/5 border border-white/10 rounded-[10px] px-4 py-3">
-                    <p className="text-xl text-center text-white tracking-wider font-mono">{referralCode}</p>
+                    <p className="text-xl text-center text-white tracking-wider font-mono">
+                      {loading ? 'Loading...' : referralCode || 'Error loading code'}
+                    </p>
                   </div>
                   <button
                     onClick={handleCopyCode}
-                    className="flex items-center gap-2 px-4 py-3 bg-white text-black hover:bg-white/90 rounded-[10px] transition-all"
+                    disabled={loading || !referralCode}
+                    className="flex items-center gap-2 px-4 py-3 bg-white text-black hover:bg-white/90 rounded-[10px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {copied ? (
                       <>
@@ -449,9 +475,9 @@ export function ReferralPage({
                     </div>
                   </div>
                   
-                  {referralHistory.length > 0 ? (
+                  {referralHistoryDisplay.length > 0 ? (
                     <div className="divide-y divide-white/5">
-                      {referralHistory.map((referral, index) => (
+                      {referralHistoryDisplay.map((referral, index) => (
                         <div key={index} className="p-4 hover:bg-white/5 transition-colors">
                           <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
